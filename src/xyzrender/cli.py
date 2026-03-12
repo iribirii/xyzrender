@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from xyzrender.api import Molecule, load, orient, render, render_gif
+from xyzrender.api import Molecule, _build_ensemble_molecule, ensemble, load, orient, render, render_gif
 from xyzrender.config import build_config
 from xyzrender.readers import load_stdin
 
@@ -185,8 +185,8 @@ def main() -> None:
         help="Hull edge stroke width as fraction of bond width (default: 0.4)",
     )
 
-    # --- Overlay ---
-    ov_g = p.add_argument_group("overlay")
+    # --- Overlay / ensemble ---
+    ov_g = p.add_argument_group("overlay / ensemble")
     ov_g.add_argument(
         "--overlay",
         default=None,
@@ -198,6 +198,12 @@ def main() -> None:
         default=None,
         dest="overlay_color",
         help="Overlay molecule color (hex or named, default: darkmagenta)",
+    )
+    ov_g.add_argument(
+        "--ensemble",
+        action="store_true",
+        default=False,
+        help="Ensemble overlay for multi-frame XYZ trajectories (align all frames onto the first)",
     )
 
     # --- Orientation ---
@@ -442,6 +448,16 @@ def main() -> None:
 
     is_cube = args.input and args.input.endswith(".cube")
 
+    # Ensemble overlay is only defined for multi-frame XYZ / QM trajectories
+    if args.ensemble and not args.input:
+        p.error("--ensemble requires an input trajectory file")
+    if args.ensemble and (args.overlay or args.overlay_color):
+        p.error("--ensemble cannot be combined with --overlay / --overlay-color")
+    if args.ensemble and (args.gif_ts or args.gif_trj):
+        p.error("--ensemble cannot be combined with --gif-ts or --gif-trj (use gif_rot only)")
+    if args.ensemble and from_stdin:
+        p.error("--ensemble cannot be used with stdin input")
+
     # Validate --smi / --mol-frame / --rebuild usage
     if args.smi and args.input:
         p.error("--smi cannot be combined with a positional input file")
@@ -560,35 +576,65 @@ def main() -> None:
 
     # --- Render static SVG ---
     try:
-        render(
-            mol,
-            config=cfg,
-            no_cell=args.no_cell,
-            axes=args.axes,
-            axis=args.axis,
-            ghosts=_show_ghosts,
-            cell_color=args.cell_color,
-            cell_width=args.cell_width,
-            ghost_opacity=args.ghost_opacity,
-            mo=args.mo,
-            dens=args.dens,
-            esp=args.esp,
-            nci=args.nci_surf,
-            iso=args.iso,
-            mo_pos_color=args.mo_colors[0] if args.mo_colors else None,
-            mo_neg_color=args.mo_colors[1] if args.mo_colors else None,
-            mo_blur=args.mo_blur,
-            mo_upsample=args.mo_upsample,
-            flat_mo=args.flat_mo,
-            dens_color=args.dens_color,
-            nci_color=args.nci_color,
-            nci_coloring=args.nci_coloring,
-            overlay=args.overlay,
-            overlay_color=args.overlay_color,
-            vectors=args.vectors,
-            vector_scale=args.vector_scale,
-            output=args.output,
-        )
+        if args.ensemble:
+            ensemble(
+                args.input,
+                config=cfg,
+                no_cell=args.no_cell,
+                axes=args.axes,
+                axis=args.axis,
+                ghosts=_show_ghosts,
+                cell_color=args.cell_color,
+                cell_width=args.cell_width,
+                ghost_opacity=args.ghost_opacity,
+                iso=args.iso,
+                mo_pos_color=args.mo_colors[0] if args.mo_colors else None,
+                mo_neg_color=args.mo_colors[1] if args.mo_colors else None,
+                mo_blur=args.mo_blur,
+                mo_upsample=args.mo_upsample,
+                flat_mo=args.flat_mo,
+                dens_color=args.dens_color,
+                nci_color=args.nci_color,
+                nci_coloring=args.nci_coloring,
+                vectors=args.vectors,
+                vector_scale=args.vector_scale,
+                output=args.output,
+                charge=args.charge,
+                multiplicity=args.multiplicity,
+                kekule=args.kekule,
+                rebuild=args.rebuild,
+                quick=args.bo is False,
+            )
+        else:
+            render(
+                mol,
+                config=cfg,
+                no_cell=args.no_cell,
+                axes=args.axes,
+                axis=args.axis,
+                ghosts=_show_ghosts,
+                cell_color=args.cell_color,
+                cell_width=args.cell_width,
+                ghost_opacity=args.ghost_opacity,
+                mo=args.mo,
+                dens=args.dens,
+                esp=args.esp,
+                nci=args.nci_surf,
+                iso=args.iso,
+                mo_pos_color=args.mo_colors[0] if args.mo_colors else None,
+                mo_neg_color=args.mo_colors[1] if args.mo_colors else None,
+                mo_blur=args.mo_blur,
+                mo_upsample=args.mo_upsample,
+                flat_mo=args.flat_mo,
+                dens_color=args.dens_color,
+                nci_color=args.nci_color,
+                nci_coloring=args.nci_coloring,
+                overlay=args.overlay,
+                overlay_color=args.overlay_color,
+                vectors=args.vectors,
+                vector_scale=args.vector_scale,
+                output=args.output,
+            )
     except ValueError as e:
         p.error(str(e))
 
@@ -605,7 +651,18 @@ def main() -> None:
                         f"(valid: {', '.join(ROTATION_AXES)}, or 3-digit hkl for crystal inputs)"
                     )
 
-        mol_or_path: str | Molecule = args.input if (args.gif_ts or args.gif_trj) else mol
+        if args.ensemble and args.gif_rot:
+            # Ensemble rotation GIF: build ensemble Molecule once and spin it.
+            mol_or_path = _build_ensemble_molecule(
+                args.input,
+                charge=args.charge,
+                multiplicity=args.multiplicity,
+                kekule=args.kekule,
+                rebuild=args.rebuild,
+                quick=args.bo is False,
+            )
+        else:
+            mol_or_path: str | Molecule = args.input if (args.gif_ts or args.gif_trj) else mol
         # For gif_ts/gif_trj the trajectory is read from disk (mol_or_path is a path),
         # but pass mol.graph as reference_graph so -I orientation and TS/NCI bonds are respected.
         _ref_graph = mol.graph if (args.gif_ts or args.gif_trj) else None

@@ -388,6 +388,22 @@ xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --hy -o isothio_overlay
 xyzrender isothio_xtb.xyz --overlay isothio_uma.xyz -c 1 --overlay-color green -a 2 --no-orient -o isothio_overlay_custom.svg
 ```
 
+### Ensemble overlay
+
+Render all conformers from a multi-frame XYZ trajectory in a single image. All frames are RMSD-aligned onto the first via the Kabsch algorithm (index-based atom pairing), and rendered with the standard CPK colour scheme.
+
+```bash
+xyzrender examples/structures/sn2.v000.xyz --ensemble -o sn2_ensemble.svg
+```
+
+| SN2 ensemble | Triphenylbenzol ensemble |
+|--------------|--------------------------|
+| ![sn2 ensemble](sn2_ensemble.svg) | ![triphenylbenzol ensemble](examples/images/triphenylbenzol_ensemble.svg) |
+
+| Triphenylbenzol ensemble (static) | Triphenylbenzol ensemble (rotation GIF) |
+|-----------------------------------|-----------------------------------------|
+| ![triphenylbenzol ensemble](examples/images/triphenylbenzol_ensemble.svg) | ![triphenylbenzol ensemble gif](examples/images/triphenylbenzol_ensemble.gif) |
+
 ### Transition states and NCI
 
 xyzrender uses [xyzgraph](https://github.com/aligfellow/xyzgraph) for molecular graph construction from Cartesian coordinates — determining bond connectivity, bond orders, detecting aromatic rings, and non-covalent interactions. It also provides element data (van der Waals radii, atomic numbers) used throughout rendering.

@@ -1235,6 +1235,247 @@ def render_gif(
 
 
 # ---------------------------------------------------------------------------
+# Ensemble overlay
+# ---------------------------------------------------------------------------
+
+
+def _build_ensemble_molecule(
+    trajectory: str | os.PathLike,
+    *,
+    reference_frame: int = 0,
+    max_frames: int | None = None,
+    charge: int = 0,
+    multiplicity: int | None = None,
+    kekule: bool = False,
+    rebuild: bool = False,
+    quick: bool = False,
+) -> Molecule:
+    """Build a :class:`Molecule` representing an ensemble of conformers.
+
+    Frames from *trajectory* are RMSD-aligned onto *reference_frame* using
+    index-based pairing (atom *i* in each frame corresponds to atom *i* in
+    the reference frame).  Colours are left to the normal CPK palette.
+    """
+    from xyzrender.ensemble import align as ensemble_align
+    from xyzrender.ensemble import merge_graphs as ensemble_merge_graphs
+    from xyzrender.readers import load_molecule, load_trajectory_frames
+
+    traj_path = Path(str(trajectory))
+    frames = load_trajectory_frames(traj_path)
+    if len(frames) < 2:
+        msg = "ensemble: trajectory must contain at least two frames"
+        raise ValueError(msg)
+    if not (0 <= reference_frame < len(frames)):
+        msg = f"ensemble: reference_frame {reference_frame} out of range for {len(frames)} frames"
+        raise ValueError(msg)
+
+    # Optional frame cap: first max_frames frames, always including reference_frame.
+    if max_frames is not None:
+        if max_frames < 2:
+            msg = "ensemble: max_frames must be at least 2 when set"
+            raise ValueError(msg)
+        max_frames = min(max_frames, len(frames))
+        # Ensure the reference frame is included: if it lies beyond the window,
+        # fall back to using frame 0 as the reference.
+        if reference_frame >= max_frames:
+            reference_frame = 0
+        frames = frames[:max_frames]
+
+    # Sanity-check that all frames share the same symbols and atom counts.
+    ref_symbols = frames[reference_frame]["symbols"]
+    for idx, fr in enumerate(frames):
+        if fr["symbols"] != ref_symbols:
+            msg = f"ensemble: frame {idx} atom symbols do not match reference frame"
+            raise ValueError(msg)
+
+    ref_graph, cell_data = load_molecule(
+        traj_path,
+        frame=reference_frame,
+        charge=charge,
+        multiplicity=multiplicity,
+        kekule=kekule,
+        rebuild=rebuild,
+        quick=quick,
+    )
+    # For ensemble overlays we ignore bond orders in the rendering.  Flatten any
+    # existing bond_order values to 1 so everything is drawn as single bonds.
+    for _i, _j, data in ref_graph.edges(data=True):
+        if "bond_order" in data:
+            data["bond_order"] = 1
+    aligned_positions = ensemble_align(frames, reference_frame=reference_frame)
+    ensemble_graph = ensemble_merge_graphs(ref_graph, aligned_positions)
+    return Molecule(graph=ensemble_graph, cube_data=None, cell_data=cell_data, oriented=False)
+
+
+def ensemble(
+    trajectory: str | os.PathLike,
+    *,
+    reference_frame: int = 0,
+    max_frames: int | None = None,
+    config: str | RenderConfig = "default",
+    # --- Style (only when config is a preset name or file path) ---
+    canvas_size: int | None = None,
+    atom_scale: float | None = None,
+    bond_width: float | None = None,
+    atom_stroke_width: float | None = None,
+    bond_color: str | None = None,
+    background: str | None = None,
+    transparent: bool = False,
+    gradient: bool | None = None,
+    hue_shift_factor: float | None = None,
+    light_shift_factor: float | None = None,
+    saturation_shift_factor: float | None = None,
+    fog: bool | None = None,
+    fog_strength: float | None = None,
+    label_font_size: float | None = None,
+    vdw_opacity: float | None = None,
+    vdw_scale: float | None = None,
+    vdw_gradient_strength: float | None = None,
+    # --- Display ---
+    hy: bool | list[int] | None = None,
+    no_hy: bool = False,
+    bo: bool | None = None,
+    orient: bool | None = None,
+    # --- Crystal display (when mol has cell_data) ---
+    no_cell: bool = False,
+    axes: bool = True,
+    axis: str | None = None,
+    ghosts: bool | None = None,
+    cell_color: str | None = None,
+    cell_width: float | None = None,
+    ghost_opacity: float | None = None,
+    # --- Annotations ---
+    labels: list[str] | None = None,
+    label_file: str | None = None,
+    # --- Vector arrows ---
+    vectors: str | Path | dict | list[VectorArrow] | None = None,
+    vector_scale: float | None = None,
+    vector_color: str | None = None,
+    # --- Surface opacity ---
+    opacity: float | None = None,
+    # --- Surfaces (disabled for ensemble overlays) ---
+    mo: bool = False,
+    dens: bool = False,
+    esp: str | os.PathLike | None = None,
+    nci: str | os.PathLike | None = None,
+    iso: float | None = None,
+    mo_pos_color: str | None = None,
+    mo_neg_color: str | None = None,
+    mo_blur: float | None = None,
+    mo_upsample: int | None = None,
+    flat_mo: bool = False,
+    dens_color: str | None = None,
+    nci_color: str | None = None,
+    nci_coloring: str | None = None,
+    nci_cutoff: float | None = None,
+    # --- Convex hull ---
+    hull: bool | list[int] | list[list[int]] | None = None,
+    hull_color: str | list[str] | None = None,
+    hull_opacity: float | None = None,
+    hull_edge: bool | None = None,
+    hull_edge_width_ratio: float | None = None,
+    # --- Loading options for connectivity ---
+    charge: int = 0,
+    multiplicity: int | None = None,
+    kekule: bool = False,
+    rebuild: bool = False,
+    quick: bool = False,
+    # --- Output ---
+    output: str | os.PathLike | None = None,
+) -> SVGResult:
+    """High-level entry point for ensemble overlays.
+
+    Loads a multi-frame trajectory, builds an ensemble :class:`Molecule`
+    via :func:`_build_ensemble_molecule`, and renders it with :func:`render`.
+    """
+    if mo or dens or esp is not None or nci is not None:
+        msg = "ensemble(): surface rendering (mo/dens/esp/nci) is not supported for ensemble overlays"
+        raise ValueError(msg)
+
+    # Default behaviour for ensemble overlays:
+    # - Show all hydrogens (unless the caller explicitly overrides hy/no_hy).
+    # - Ignore bond orders (draw all bonds as single) unless bo is explicitly set.
+    hy_eff: bool | list[int] | None = hy if hy is not None or no_hy else True
+    bo_eff: bool | None = False if bo is None else bo
+
+    ensemble_mol = _build_ensemble_molecule(
+        trajectory,
+        reference_frame=reference_frame,
+        max_frames=max_frames,
+        charge=charge,
+        multiplicity=multiplicity,
+        kekule=kekule,
+        rebuild=rebuild,
+        quick=quick,
+    )
+
+    return render(
+        ensemble_mol,
+        config=config,
+        canvas_size=canvas_size,
+        atom_scale=atom_scale,
+        bond_width=bond_width,
+        atom_stroke_width=atom_stroke_width,
+        bond_color=bond_color,
+        background=background,
+        transparent=transparent,
+        gradient=gradient,
+        hue_shift_factor=hue_shift_factor,
+        light_shift_factor=light_shift_factor,
+        saturation_shift_factor=saturation_shift_factor,
+        fog=fog,
+        fog_strength=fog_strength,
+        label_font_size=label_font_size,
+        vdw_opacity=vdw_opacity,
+        vdw_scale=vdw_scale,
+        vdw_gradient_strength=vdw_gradient_strength,
+        hy=hy_eff,
+        no_hy=no_hy,
+        bo=bo_eff,
+        orient=orient,
+        no_cell=no_cell,
+        axes=axes,
+        axis=axis,
+        ghosts=ghosts,
+        cell_color=cell_color,
+        cell_width=cell_width,
+        ghost_opacity=ghost_opacity,
+        ts_bonds=None,
+        nci_bonds=None,
+        vdw=None,
+        idx=False,
+        cmap=None,
+        cmap_range=None,
+        labels=labels,
+        label_file=label_file,
+        vectors=vectors,
+        vector_scale=vector_scale,
+        vector_color=vector_color,
+        opacity=opacity,
+        mo=False,
+        dens=False,
+        esp=None,
+        nci=None,
+        iso=iso,
+        mo_pos_color=mo_pos_color,
+        mo_neg_color=mo_neg_color,
+        mo_blur=mo_blur,
+        mo_upsample=mo_upsample,
+        flat_mo=flat_mo,
+        dens_color=dens_color,
+        nci_color=nci_color,
+        nci_coloring=nci_coloring,
+        nci_cutoff=nci_cutoff,
+        hull=hull,
+        hull_color=hull_color,
+        hull_opacity=hull_opacity,
+        hull_edge=hull_edge,
+        hull_edge_width_ratio=hull_edge_width_ratio,
+        output=output,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
 
