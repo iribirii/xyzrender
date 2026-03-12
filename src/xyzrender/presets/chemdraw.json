@@ -5,7 +5,7 @@
   "bond_color": "black",
   "atom_stroke_width": 0,
   "gradient": false,
-  "fog": false,
+  "fog": true,
   "bond_orders": true,
   "background": "white",
   "label_font_size": 50,

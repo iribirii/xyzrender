@@ -612,19 +612,41 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
         is_aromatic = 1.3 < bo < 1.7
         if is_aromatic:
-            # Solid + dashed parallel lines, dashed toward ring center
             side = _ring_side(pos, ai, aj, aromatic_rings, x1, y1, x2, y2, px, py, scale, cx, cy, canvas_w, canvas_h)
-            w = bw * 0.7
             if cfg.chemdraw_style:
-                # Uniform, slightly thinner bond width in Chemdraw mode
+                # Chemdraw-style aromatic bond:
+                # - One solid line centred on the bond (no perpendicular offset)
+                # - One dashed line offset further toward the ring centre and
+                #   shortened at both ends to reduce overlap.
                 w = bw * 0.6
-            for ib in [-1, 1]:
-                ox, oy = px * ib * gap, py * ib * gap
-                dash = f' stroke-dasharray="{w * 1.0:.1f},{w * 2.0:.1f}"' if ib == side else ""
+                # Solid component: centre line
                 svg.append(
-                    f'  <line x1="{x1 + ox:.1f}" y1="{y1 + oy:.1f}" x2="{x2 + ox:.1f}" y2="{y2 + oy:.1f}" '
-                    f'stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"{dash}{op_attr}/>'
+                    f'  <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                    f'stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"{op_attr}/>'
                 )
+                # Dashed component
+                vx, vy = dx / ln, dy / ln
+                trim = min(ln * 0.2, w * 2.5)
+                dx_d, dy_d = vx * trim, vy * trim
+                x1d, y1d = x1 + dx_d, y1 + dy_d
+                x2d, y2d = x2 - dx_d, y2 - dy_d
+                ox, oy = px * 2 * gap * side, py * 2 * gap * side
+                d_dash, g_dash = w * 1.0, w * 2.0
+                svg.append(
+                    f'  <line x1="{x1d + ox:.1f}" y1="{y1d + oy:.1f}" x2="{x2d + ox:.1f}" y2="{y2d + oy:.1f}" '
+                    f'stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round" '
+                    f'stroke-dasharray="{d_dash:.1f},{g_dash:.1f}"{op_attr}/>'
+                )
+            else:
+                # Default aromatic: solid + dashed parallel lines, dashed toward ring center
+                w = bw * 0.7
+                for ib in [-1, 1]:
+                    ox, oy = px * ib * gap, py * ib * gap
+                    dash = f' stroke-dasharray="{w * 1.0:.1f},{w * 2.0:.1f}"' if ib == side else ""
+                    svg.append(
+                        f'  <line x1="{x1 + ox:.1f}" y1="{y1 + oy:.1f}" x2="{x2 + ox:.1f}" y2="{y2 + oy:.1f}" '
+                        f'stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"{dash}{op_attr}/>'
+                    )
         else:
             nb = max(1, round(bo))
             # In Chemdraw mode, use a uniform, thinner stroke width regardless of bond order
@@ -681,17 +703,20 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
         # Atom graphics / labels
         if cfg.chemdraw_style:
-            # No atom circles; label non-carbon atoms with their element symbol
-            # using a bold, more readable font.
+            # No atom circles; label non-carbon atoms with their element symbol.
+            # Use CPK base colour with optional fog so labels match normal styles.
             if not is_image:
                 sym = symbols[ai]
                 if sym != "C":
+                    fill = colors[ai].hex
+                    if cfg.fog:
+                        fill = blend_fog(fill, fog_rgb, fog_f[ai])
                     svg.append(
                         f'  <text x="{xi:.1f}" y="{yi:.1f}" '
                         f'font-family="Helvetica,Arial,sans-serif" '
                         f'font-size="{fs_label:.1f}px" font-weight="bold" '
                         f'text-anchor="middle" dominant-baseline="central" '
-                        f'fill="{cfg.label_color}">{sym}</text>'
+                        f'fill="{fill}">{sym}</text>'
                     )
         else:
             # Atom circle (gradient or flat fill)
