@@ -289,14 +289,15 @@ uv run bash examples/generate.sh
 
 ### Presets
 
-| Default | Flat | Paton (pymol-like) |
-|---------|------|-------|
-| ![default](examples/images/caffeine_default.svg) | ![flat](examples/images/caffeine_flat.svg) | ![paton](examples/images/caffeine_paton.svg) |
+| Default | Flat | Paton (pymol-like) | Chemdraw-style |
+|---------|------|--------------------|----------------|
+| ![default](examples/images/caffeine_default.svg) | ![flat](examples/images/caffeine_flat.svg) | ![paton](examples/images/caffeine_paton.svg) | ![chemdraw](examples/images/caffeine_chemdraw.svg) |
 
 ```bash
 xyzrender caffeine.xyz -o caffeine_default.svg              # default preset
 xyzrender caffeine.xyz --config flat -o caffeine_flat.svg   # flat: no gradient
 xyzrender caffeine.xyz --config paton -o caffeine_paton.svg # paton: PyMOL-style
+xyzrender caffeine.xyz --config chemdraw -o caffeine_chemdraw.svg # Chemdraw-style line diagram
 ```
 
 The `paton` style is inspired by the clean styling used by [Rob Paton](https://github.com/patonlab) through PyMOL (see [gist](https://gist.github.com/bobbypaton/1cdc4784f3fc8374467bae5eb410edef))

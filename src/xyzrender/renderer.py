@@ -259,7 +259,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if not cfg.transparent:
         svg.append(f'  <rect width="100%" height="100%" fill="{cfg.background}"/>')
 
-    use_grad = cfg.gradient
+    use_grad = cfg.gradient and not cfg.chemdraw_style
     # Cmap/fog/overlay all require per-atom gradient defs (each atom may have a distinct colour)
     use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None or has_overlay
     if use_grad:
@@ -552,8 +552,27 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             return
         d = rij / dist
 
-        start = pos[ai] + d * radii[ai] * 0.9
-        end = pos[aj] - d * radii[aj] * 0.9
+        # Effective radii for bond endpoints:
+        # - Normal modes: use display radii for both atoms.
+        # - Chemdraw style: keep bonds touching carbon centres (radius=0 for C)
+        #   but offset from non-carbon atoms by an amount that grows with
+        #   label font size so bonds do not overlap the element text.
+        if cfg.chemdraw_style:
+            sym_i = symbols[ai]
+            sym_j = symbols[aj]
+            # Convert a pixel margin based on label font size back into the 3D
+            # coordinate scale used for radii.  This keeps the visual clearance
+            # between bond endpoint and text roughly proportional to font size.
+            # The 0.5 factor is empirical and tuned for legibility.
+            margin_3d = (fs_label * 0.7) / max(scale, 1e-6)
+            ri = 0.0 if sym_i == "C" else max(radii[ai], margin_3d)
+            rj = 0.0 if sym_j == "C" else max(radii[aj], margin_3d)
+        else:
+            ri = radii[ai]
+            rj = radii[aj]
+
+        start = pos[ai] + d * ri * 0.9
+        end = pos[aj] - d * rj * 0.9
         if np.dot(end - start, d) <= 0:
             return
 
@@ -596,6 +615,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             # Solid + dashed parallel lines, dashed toward ring center
             side = _ring_side(pos, ai, aj, aromatic_rings, x1, y1, x2, y2, px, py, scale, cx, cy, canvas_w, canvas_h)
             w = bw * 0.7
+            if cfg.chemdraw_style:
+                # Uniform, slightly thinner bond width in Chemdraw mode
+                w = bw * 0.6
             for ib in [-1, 1]:
                 ox, oy = px * ib * gap, py * ib * gap
                 dash = f' stroke-dasharray="{w * 1.0:.1f},{w * 2.0:.1f}"' if ib == side else ""
@@ -605,7 +627,11 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 )
         else:
             nb = max(1, round(bo))
-            w = bw if nb == 1 else bw * 0.7
+            # In Chemdraw mode, use a uniform, thinner stroke width regardless of bond order
+            if cfg.chemdraw_style:
+                w = bw * 0.6
+            else:
+                w = bw if nb == 1 else bw * 0.7
             for ib in range(-nb + 1, nb, 2):
                 ox, oy = px * ib * gap, py * ib * gap
                 svg.append(
@@ -653,32 +679,47 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         atom_op = cfg.periodic_image_opacity if is_image else 1.0
         op_attr_atom = f' opacity="{atom_op:.2f}"' if atom_op < 1.0 else ""
 
-        # Atom
-        if use_grad:
-            ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
-            svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"{op_attr_atom}/>')
+        # Atom graphics / labels
+        if cfg.chemdraw_style:
+            # No atom circles; label non-carbon atoms with their element symbol
+            # using a bold, more readable font.
+            if not is_image:
+                sym = symbols[ai]
+                if sym != "C":
+                    svg.append(
+                        f'  <text x="{xi:.1f}" y="{yi:.1f}" '
+                        f'font-family="Helvetica,Arial,sans-serif" '
+                        f'font-size="{fs_label:.1f}px" font-weight="bold" '
+                        f'text-anchor="middle" dominant-baseline="central" '
+                        f'fill="{cfg.label_color}">{sym}</text>'
+                    )
         else:
-            fill, stroke = colors[ai].hex, cfg.atom_stroke_color
-            if cfg.fog:
-                fill = blend_fog(fill, fog_rgb, fog_f[ai])
-                stroke = blend_fog(stroke, fog_rgb, fog_f[ai])
-            svg.append(
-                f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
-                f'fill="{fill}" stroke="{stroke}" stroke-width="{sw:.1f}"{op_attr_atom}/>'
-            )
+            # Atom circle (gradient or flat fill)
+            if use_grad:
+                ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
+                svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"{op_attr_atom}/>')
+            else:
+                fill, stroke = colors[ai].hex, cfg.atom_stroke_color
+                if cfg.fog:
+                    fill = blend_fog(fill, fog_rgb, fog_f[ai])
+                    stroke = blend_fog(stroke, fog_rgb, fog_f[ai])
+                svg.append(
+                    f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
+                    f'fill="{fill}" stroke="{stroke}" stroke-width="{sw:.1f}"{op_attr_atom}/>'
+                )
 
-        # Atom index label — depth-sorted with atom so nearer atoms occlude it
-        # (skip for image atoms — labels would be confusing)
-        if cfg.show_indices and not is_image:
-            fmt = cfg.idx_format
-            sym = symbols[ai]
-            if fmt == "sn":
-                idx_text = f"{sym}{ai + 1}"
-            elif fmt == "s":
-                idx_text = sym
-            else:  # "n"
-                idx_text = str(ai + 1)
-            svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
+            # Atom index label — depth-sorted with atom so nearer atoms occlude it
+            # (skip for image atoms — labels would be confusing)
+            if cfg.show_indices and not is_image:
+                fmt = cfg.idx_format
+                sym = symbols[ai]
+                if fmt == "sn":
+                    idx_text = f"{sym}{ai + 1}"
+                elif fmt == "s":
+                    idx_text = sym
+                else:  # "n"
+                    idx_text = str(ai + 1)
+                svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
 
         # Bonds to deeper atoms
         for aj in z_order[idx + 1 :]:

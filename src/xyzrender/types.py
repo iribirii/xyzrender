@@ -422,6 +422,8 @@ class RenderConfig:
     nci_color_mode: str = _DEFAULT_NCI_COLOR_MODE
     # Overlay
     overlay_color: str = "mediumorchid"
+    # Chemdraw-style line rendering
+    chemdraw_style: bool = False
     # Crystal / periodic structure
     cell_data: CellData | None = None
     show_cell: bool = True
