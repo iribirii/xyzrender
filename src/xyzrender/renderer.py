@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import logging
 
+import networkx as nx
 import numpy as np
 from xyzgraph import DATA
 
@@ -22,6 +23,7 @@ from xyzrender.mo import (
     mo_front_lobes_svg,
 )
 from xyzrender.types import BondStyle, Color, RenderConfig, resolve_color
+from xyzrender.utils import pca_orient
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +58,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         # Exclude NCI centroid dummy nodes from PCA fitting
         atom_mask = np.array([s != "*" for s in symbols])
         fit_mask = atom_mask if not atom_mask.all() else None
-        from xyzrender.utils import pca_orient
-
-        if _vec_origins is not None:
+        if cfg.vectors:
             # Capture rotation matrix so vector origins/directions transform with the molecule
             _fit = pos[fit_mask] if fit_mask is not None else pos
             _centroid = _fit.mean(axis=0)
@@ -129,7 +129,8 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         _ref_px_per_ang = (_REF_CANVAS - 2 * cfg.padding) / _REF_SPAN
         _vec_tips = []
         for vi, va in enumerate(cfg.vectors):
-            scaled_vec = _vec_dirs[vi] * va.scale * cfg.vector_scale
+            _vec_scale = 1.0 if va.is_axis else cfg.vector_scale
+            scaled_vec = _vec_dirs[vi] * va.scale * _vec_scale
             tail3d = _vec_origins[vi] - scaled_vec / 2 if va.anchor == "center" else _vec_origins[vi]
             tip3d = tail3d + scaled_vec
             _vec_tips.append(tip3d)
@@ -216,30 +217,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 if neighbours and all(symbols[nb] == "C" for nb in neighbours):
                     hidden.add(ai)
 
-    aromatic_rings = [set(r) for r in graph.graph.get("aromatic_rings", [])]
-
-    # Ensure all aromatic bonds are covered by ring data — auto-detect missing rings
-    aromatic_ring_edges = set()
-    for ring in aromatic_rings:
-        rl = list(ring)
-        for ii in range(len(rl)):
-            for jj in range(ii + 1, len(rl)):
-                if (rl[ii], rl[jj]) in bonds or (rl[jj], rl[ii]) in bonds:
-                    aromatic_ring_edges.add((min(rl[ii], rl[jj]), max(rl[ii], rl[jj])))
-    missing = False
-    for (i, j), (bo, _style, _col) in bonds.items():
-        if i < j and 1.3 < bo < 1.7 and (i, j) not in aromatic_ring_edges:
-            missing = True
-            break
-    if missing:
-        import networkx as nx
-
-        arom_g = nx.Graph()
-        for (i, j), (bo, _style, _col) in bonds.items():
-            if i < j and 1.3 < bo < 1.7:
-                arom_g.add_edge(i, j)
-        if arom_g.number_of_edges() > 0:
-            aromatic_rings = [set(c) for c in nx.minimum_cycle_basis(arom_g)]
+    aromatic_rings = _compute_aromatic_rings(graph, bonds)
 
     # Fog factors — normalized across depth range, with a dead-zone near the front
     fog_f = np.zeros(n)
@@ -259,7 +237,9 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if not cfg.transparent:
         svg.append(f'  <rect width="100%" height="100%" fill="{cfg.background}"/>')
 
-    use_grad = cfg.gradient
+    use_grad = cfg.gradient and not cfg.skeletal_style
+    if cfg.skeletal_style:
+        from xyzrender.skeletal import skeletal_atom_svg, skeletal_bond_svg
     # Cmap/fog/overlay all require per-atom gradient defs (each atom may have a distinct colour)
     use_per_atom_grad = cfg.fog or cfg.atom_cmap is not None or has_overlay
     if use_grad:
@@ -461,7 +441,8 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     if cfg.vectors:
         for vi in range(len(cfg.vectors)):
             va = cfg.vectors[vi]
-            scaled_vec = _vec_dirs[vi] * va.scale * cfg.vector_scale
+            _global = 1.0 if va.is_axis else cfg.vector_scale
+            scaled_vec = _vec_dirs[vi] * va.scale * _global
             if va.anchor == "center":
                 tail3d = _vec_origins[vi] - scaled_vec / 2
             else:
@@ -546,14 +527,45 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
     def add_bond(ai, aj, bo, style, opacity: float = 1.0, color_override: str | None = None):
         """Render bond — closure captures shared rendering state."""
+        if cfg.skeletal_style:
+            skeletal_bond_svg(
+                svg,
+                ai,
+                aj,
+                bo,
+                style,
+                opacity,
+                pos=pos,
+                symbols=symbols,
+                radii=radii,
+                bw=bw,
+                gap=gap,
+                fs_label=fs_label,
+                scale=scale,
+                cx=cx,
+                cy=cy,
+                canvas_w=canvas_w,
+                canvas_h=canvas_h,
+                fog_f=fog_f,
+                fog_rgb=fog_rgb,
+                fog_enabled=cfg.fog,
+                bond_color=cfg.bond_color,
+                color_override=color_override,
+                aromatic_rings=aromatic_rings,
+            )
+            return
+
         rij = pos[aj] - pos[ai]
         dist = np.linalg.norm(rij)
         if dist < 1e-6:
             return
         d = rij / dist
 
-        start = pos[ai] + d * radii[ai] * 0.9
-        end = pos[aj] - d * radii[aj] * 0.9
+        ri = radii[ai]
+        rj = radii[aj]
+
+        start = pos[ai] + d * ri * 0.9
+        end = pos[aj] - d * rj * 0.9
         if np.dot(end - start, d) <= 0:
             return
 
@@ -653,32 +665,49 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         atom_op = cfg.periodic_image_opacity if is_image else 1.0
         op_attr_atom = f' opacity="{atom_op:.2f}"' if atom_op < 1.0 else ""
 
-        # Atom
-        if use_grad:
-            ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
-            svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"{op_attr_atom}/>')
+        # Atom graphics / labels
+        if cfg.skeletal_style:
+            if not is_image:
+                skeletal_atom_svg(
+                    svg,
+                    ai,
+                    xi,
+                    yi,
+                    symbols=symbols,
+                    colors=colors,
+                    fs_label=fs_label,
+                    fog_enabled=cfg.fog,
+                    fog_rgb=fog_rgb,
+                    fog_f=fog_f,
+                    label_color_override=cfg.skeletal_label_color,
+                )
         else:
-            fill, stroke = colors[ai].hex, cfg.atom_stroke_color
-            if cfg.fog:
-                fill = blend_fog(fill, fog_rgb, fog_f[ai])
-                stroke = blend_fog(stroke, fog_rgb, fog_f[ai])
-            svg.append(
-                f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
-                f'fill="{fill}" stroke="{stroke}" stroke-width="{sw:.1f}"{op_attr_atom}/>'
-            )
+            # Atom circle (gradient or flat fill)
+            if use_grad:
+                ref = f"#a{ai}" if use_per_atom_grad else f"#a{a_nums[ai]}"
+                svg.append(f'  <use x="{xi:.1f}" y="{yi:.1f}" xlink:href="{ref}"{op_attr_atom}/>')
+            else:
+                fill, stroke = colors[ai].hex, cfg.atom_stroke_color
+                if cfg.fog:
+                    fill = blend_fog(fill, fog_rgb, fog_f[ai])
+                    stroke = blend_fog(stroke, fog_rgb, fog_f[ai])
+                svg.append(
+                    f'  <circle cx="{xi:.1f}" cy="{yi:.1f}" r="{radii[ai] * scale:.1f}" '
+                    f'fill="{fill}" stroke="{stroke}" stroke-width="{sw:.1f}"{op_attr_atom}/>'
+                )
 
-        # Atom index label — depth-sorted with atom so nearer atoms occlude it
-        # (skip for image atoms — labels would be confusing)
-        if cfg.show_indices and not is_image:
-            fmt = cfg.idx_format
-            sym = symbols[ai]
-            if fmt == "sn":
-                idx_text = f"{sym}{ai + 1}"
-            elif fmt == "s":
-                idx_text = sym
-            else:  # "n"
-                idx_text = str(ai + 1)
-            svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
+            # Atom index label — depth-sorted with atom so nearer atoms occlude it
+            # (skip for image atoms — labels would be confusing)
+            if cfg.show_indices and not is_image:
+                fmt = cfg.idx_format
+                sym = symbols[ai]
+                if fmt == "sn":
+                    idx_text = f"{sym}{ai + 1}"
+                elif fmt == "s":
+                    idx_text = sym
+                else:  # "n"
+                    idx_text = str(ai + 1)
+                svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
 
         # Bonds to deeper atoms
         for aj in z_order[idx + 1 :]:
@@ -805,6 +834,38 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _compute_aromatic_rings(
+    graph,
+    bonds: dict[tuple[int, int], tuple[float, BondStyle, str | None]],
+) -> list[set[int]]:
+    """Return list of aromatic ring atom index sets, with fallback when graph has no ring data.
+
+    If the graph has ``aromatic_rings``, use it. If any bond with order in (1.3, 1.7)
+    is not covered by those rings, build an aromatic subgraph and use minimum_cycle_basis.
+    """
+    aromatic_rings = [set(r) for r in graph.graph.get("aromatic_rings", [])]
+    aromatic_ring_edges = set()
+    for ring in aromatic_rings:
+        rl = list(ring)
+        for ii in range(len(rl)):
+            for jj in range(ii + 1, len(rl)):
+                if (rl[ii], rl[jj]) in bonds or (rl[jj], rl[ii]) in bonds:
+                    aromatic_ring_edges.add((min(rl[ii], rl[jj]), max(rl[ii], rl[jj])))
+    missing = False
+    for (i, j), (bo, _style, _col) in bonds.items():
+        if i < j and 1.3 < bo < 1.7 and (i, j) not in aromatic_ring_edges:
+            missing = True
+            break
+    if missing:
+        arom_g = nx.Graph()
+        for (i, j), (bo, _style, _col) in bonds.items():
+            if i < j and 1.3 < bo < 1.7:
+                arom_g.add_edge(i, j)
+        if arom_g.number_of_edges() > 0:
+            aromatic_rings = [set(c) for c in nx.minimum_cycle_basis(arom_g)]
+    return aromatic_rings
 
 
 def _draw_arrow_svg(

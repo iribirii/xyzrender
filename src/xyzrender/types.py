@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import colorsys
+import json
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -157,9 +159,6 @@ def _load_named_colors() -> dict[str, str]:
     """Load CSS4 named colors from bundled JSON (cached on first call)."""
     global _NAMED_COLORS  # noqa: PLW0603
     if _NAMED_COLORS is None:
-        import json
-        from pathlib import Path
-
         path = Path(__file__).parent / "presets" / "named_colors.json"
         with path.open() as f:
             _NAMED_COLORS = json.load(f)
@@ -226,6 +225,7 @@ class VectorArrow:
     anchor: str = "tail"  # "tail" (origin = arrow tail) or "center" (origin = arrow midpoint)
     host_atom: int | None = None  # 0-based atom index, or None for com/explicit origins
     draw_on_top: bool = False
+    is_axis: bool = False  # True for crystallographic axis arrows (not affected by vector_scale)
     font_size: float | None = None
     width: float | None = None
 
@@ -422,6 +422,9 @@ class RenderConfig:
     nci_color_mode: str = _DEFAULT_NCI_COLOR_MODE
     # Overlay
     overlay_color: str = "mediumorchid"
+    # Skeletal formula line rendering
+    skeletal_style: bool = False
+    skeletal_label_color: str | None = None  # override all element labels (None = per-element CPK)
     # Crystal / periodic structure
     cell_data: CellData | None = None
     show_cell: bool = True
@@ -434,7 +437,7 @@ class RenderConfig:
         "royalblue",
     )  # firebrick, forestgreen, royalblue
     axis_width_scale: float = 3.0  # multiplier on cell_line_width for axis stroke width
-    # Arbitrary vector arrows (--vectors)
+    # Arbitrary vector arrows (--vector)
     vectors: list[VectorArrow] = field(default_factory=list)
     vector_scale: float = 1.0  # global length multiplier applied to all vectors
     vector_color: str = "firebrick"  # default arrow color (firebrick) when not specified per-arrow

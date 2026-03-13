@@ -12,7 +12,7 @@ Full flag reference for `xyzrender`. See also `xyzrender --help`.
 | `--rebuild` | Ignore file connectivity; re-detect bonds with xyzgraph |
 | `-c`, `--charge` | Molecular charge |
 | `-m`, `--multiplicity` | Spin multiplicity |
-| `--config` | Config preset (`default`, `flat`, `paton`) or path to JSON file |
+| `--config` | Config preset (`default`, `flat`, `paton`, `skeletal`) or path to JSON file |
 | `-d`, `--debug` | Debug logging |
 
 ## Styling
@@ -103,7 +103,7 @@ Full flag reference for `xyzrender`. See also `xyzrender --help`.
 
 | Flag | Description |
 |------|-------------|
-| `--vectors FILE` | Path to a JSON file defining 3D vector arrows for overlay |
+| `--vector FILE` | Path to a JSON file defining 3D vector arrows for overlay |
 | `--vector-scale` | Global length multiplier for all vector arrows |
 
 ## GIF animations
@@ -123,7 +123,7 @@ Available rotation axes: `x`, `y`, `z`, `xy`, `xz`, `yz`, `yx`, `zx`, `zy`. Pref
 
 | Flag | Description |
 |------|-------------|
-| `--hull [INDICES ...]` | Draw convex hull (no args = all heavy atoms; or 1-indexed subsets e.g. `1-6` or `1-6 7-12`) |
+| `--hull [INDICES ...]` | Draw convex hull (no args = all heavy atoms; `rings` = auto-detect aromatic rings; or 1-indexed subsets e.g. `1-6` or `1-6 7-12`) |
 | `--hull-color COLOR [...]` | Hull fill color(s) (hex or named, one per subset) |
 | `--hull-opacity FLOAT` | Hull fill opacity (0-1) |
 | `--hull-edge` / `--no-hull-edge` | Draw/hide non-bond hull edges (default: on) |

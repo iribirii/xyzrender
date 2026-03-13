@@ -28,8 +28,10 @@ For GIFs use :func:`render_gif`::
 
 from __future__ import annotations
 
+import base64
 import copy
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -43,6 +45,8 @@ if TYPE_CHECKING:
 
     from xyzrender.cube import CubeData
     from xyzrender.types import CellData, RenderConfig, VectorArrow
+
+from xyzrender.types import resolve_color
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +68,6 @@ class SVGResult:
 
     def _repr_svg_(self) -> str:
         """Return the SVG string for Jupyter inline display, scaled to max 500 px wide."""
-        import re
-
         return re.sub(
             r'(<svg\b[^>]*?)\s+width="[^"]*"\s+height="[^"]*"',
             r'\1 width="500" height="auto"',
@@ -83,6 +85,7 @@ class GIFResult:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._bytes: bytes | None = None
 
     @property
     def path(self) -> Path:
@@ -95,17 +98,18 @@ class GIFResult:
 
     def __bytes__(self) -> bytes:
         """Return the raw GIF bytes."""
-        return self._path.read_bytes()
+        if self._bytes is None:
+            self._bytes = self._path.read_bytes()
+        return self._bytes
 
     def save(self, path: str | os.PathLike) -> None:
         """Write the GIF to *path*."""
-        Path(path).write_bytes(self._path.read_bytes())
+        data = bytes(self)
+        Path(path).write_bytes(data)
 
     def _repr_html_(self) -> str:
         """Embed the GIF inline in Jupyter, capped to 500 px wide."""
-        import base64
-
-        data = base64.b64encode(self._path.read_bytes()).decode("ascii")
+        data = base64.b64encode(bytes(self)).decode("ascii")
         return f'<img src="data:image/gif;base64,{data}" width="500" style="height:auto"/>'
 
 
@@ -419,7 +423,7 @@ def render(
     labels: list[str] | None = None,
     label_file: str | None = None,
     # --- Vector arrows ---
-    vectors: str | Path | dict | list[VectorArrow] | None = None,
+    vector: str | Path | dict | list[VectorArrow] | None = None,
     vector_scale: float | None = None,
     vector_color: str | None = None,
     # --- Surface opacity ---
@@ -440,7 +444,7 @@ def render(
     nci_coloring: str | None = None,
     nci_cutoff: float | None = None,
     # --- Convex hull ---
-    hull: bool | list[int] | list[list[int]] | None = None,
+    hull: bool | str | list[int] | list[list[int]] | None = None,
     hull_color: str | list[str] | None = None,
     hull_opacity: float | None = None,
     hull_edge: bool | None = None,
@@ -504,9 +508,11 @@ def render(
     nci:
         Path to an NCI reduced-density-gradient ``.cube`` file.
     hull:
-        ``True`` = hull over all heavy atoms; a flat list of 1-indexed atom
-        indices (one hull, e.g. ``[1,2,3,4,5,6]``); a list of lists (multiple
-        hulls, e.g. ``[[1,2,3,4,5,6], [7,8,9]]``).  ``None`` (default) = off.
+        ``True`` = hull over all heavy atoms; ``"rings"`` = one hull per
+        aromatic ring (auto-detected from the molecular graph); a flat list
+        of 1-indexed atom indices (one hull, e.g. ``[1,2,3,4,5,6]``); a list
+        of lists (multiple hulls, e.g. ``[[1,2,3,4,5,6], [7,8,9]]``).
+        ``None`` (default) = off.
     hull_color:
         A single color string for all hulls, or a list of colors for per-subset
         colouring (one per subset).  Hex or named color.
@@ -546,6 +552,7 @@ def render(
     if not isinstance(config, str):
         # Pre-built RenderConfig — shallow copy so we don't mutate the caller's object
         cfg = copy.copy(config)
+        cfg.vectors = list(cfg.vectors)
         if _orient is not None:
             cfg.auto_orient = _orient
         elif mol.oriented:
@@ -566,26 +573,6 @@ def render(
             cfg.cmap_range = cmap_range
         if opacity is not None:
             cfg.surface_opacity = opacity
-        if hull is not None:
-            if isinstance(hull, list):
-                cfg.show_convex_hull = True
-                # 1-indexed user input → 0-indexed internal
-                from xyzrender.hull import hull_indices_to_0indexed
-
-                cfg.hull_atom_indices = hull_indices_to_0indexed(hull)
-            else:
-                cfg.show_convex_hull = hull
-        if hull_color is not None:
-            if isinstance(hull_color, list):
-                cfg.hull_colors = hull_color
-            else:
-                cfg.hull_colors = [hull_color]
-        if hull_opacity is not None:
-            cfg.hull_opacity = hull_opacity
-        if hull_edge is not None:
-            cfg.show_hull_edges = hull_edge
-        if hull_edge_width_ratio is not None:
-            cfg.hull_edge_width_ratio = hull_edge_width_ratio
     else:
         # Build from preset/file
         _ts_0 = [(a - 1, b - 1) for a, b in ts_bonds] if ts_bonds else None
@@ -594,14 +581,6 @@ def render(
         _show = bool(idx)
         _ifmt = idx if isinstance(idx, str) else "sn"
         _cmap_0 = _resolve_cmap(cmap, mol.graph) if cmap is not None else None
-        _hull_flag: bool | None = True if isinstance(hull, list) else hull
-        # 1-indexed user input → 0-indexed for build_config
-        if isinstance(hull, list):
-            from xyzrender.hull import hull_indices_to_0indexed
-
-            _hull_idx: list[int] | list[list[int]] | None = hull_indices_to_0indexed(hull)
-        else:
-            _hull_idx = None
 
         cfg = build_config(
             config,
@@ -634,13 +613,12 @@ def render(
             idx_format=_ifmt,
             atom_cmap=_cmap_0,
             cmap_range=cmap_range,
-            hull=_hull_flag,
-            hull_opacity=hull_opacity,
-            hull_colors=[hull_color] if isinstance(hull_color, str) else hull_color,
-            hull_idx=_hull_idx,
-            hull_edge=hull_edge,
-            hull_edge_width_ratio=hull_edge_width_ratio,
         )
+
+    # --- Convex hull (both config paths) ---
+    from xyzrender.hull import apply_hull_to_config
+
+    apply_hull_to_config(cfg, hull, hull_color, hull_opacity, hull_edge, hull_edge_width_ratio, mol.graph)
 
     # --- Never mutate mol — work on a render-time copy ---
     # resolve_orientation() (called by every compute_*_surface) writes PCA-rotated
@@ -655,13 +633,23 @@ def render(
         oriented=mol.oriented,
     )
 
+    # --- Vectors (user-supplied + crystal axes) ---
+    _combine_vector_sources(
+        cfg,
+        rmol.graph,
+        vector=vector,
+        vector_scale=vector_scale,
+        vector_color=vector_color,
+        cell_data=rmol.cell_data,
+        axes=axes,
+    )
+
     # --- Cell / crystal config ---
     if rmol.cell_data is not None:
         _apply_cell_config(
             rmol,
             cfg,
             no_cell=no_cell,
-            axes=axes,
             axis=axis,
             ghosts=ghosts,
             cell_color=cell_color,
@@ -680,22 +668,6 @@ def render(
 
         inline = [s.split() for s in labels] if labels else None
         cfg.annotations = parse_annotations(inline_specs=inline, file_path=label_file, graph=rmol.graph)
-
-    # --- Vector arrows ---
-    if vector_scale is not None:
-        cfg.vector_scale = vector_scale
-    if vector_color is not None:
-        from xyzrender.types import resolve_color
-
-        cfg.vector_color = resolve_color(vector_color)
-    if vectors is not None:
-        if isinstance(vectors, list):
-            cfg.vectors = vectors
-        else:
-            from xyzrender.annotations import load_vectors
-
-            _vec_src = vectors if isinstance(vectors, dict) else Path(vectors)
-            cfg.vectors = load_vectors(_vec_src, rmol.graph, default_color=cfg.vector_color)
 
     # --- Early overlay validation (before ghost atoms are added to g1) ---
     if overlay is not None and mol.cell_data is not None:
@@ -733,8 +705,6 @@ def render(
         cfg.auto_orient = False
 
         if overlay_color is not None:
-            from xyzrender.types import resolve_color
-
             cfg.overlay_color = resolve_color(overlay_color)
         aligned2 = align(g1, g2)
         rmol = Molecule(
@@ -743,6 +713,15 @@ def render(
             cell_data=None,
             oriented=True,
         )
+
+    # --- Skeletal-style validation ---
+    if cfg.skeletal_style:
+        if mo or dens or esp is not None:
+            msg = "skeletal_style is mutually exclusive with surface rendering (mo/dens/esp)"
+            raise ValueError(msg)
+        if vdw is not None:
+            msg = "skeletal_style is mutually exclusive with vdw spheres"
+            raise ValueError(msg)
 
     # --- Surface validation ---
     cube_data = rmol.cube_data
@@ -879,7 +858,7 @@ def render_gif(
     # --- NCI detection (gif_ts / gif_trj / gif_rot) ---
     detect_nci: bool = False,
     # --- Vector arrows (gif_rot only) ---
-    vectors: str | Path | dict | list[VectorArrow] | None = None,
+    vector: str | Path | dict | list[VectorArrow] | None = None,
     vector_scale: float | None = None,
     vector_color: str | None = None,
     # --- Surfaces (gif_rot only) ---
@@ -893,7 +872,7 @@ def render_gif(
     flat_mo: bool = False,
     dens_color: str | None = None,
     # --- Convex hull (gif_rot only) ---
-    hull: bool | list[int] | list[list[int]] | None = None,
+    hull: bool | str | list[int] | list[list[int]] | None = None,
     hull_color: str | list[str] | None = None,
     hull_opacity: float | None = None,
     hull_edge: bool | None = None,
@@ -974,6 +953,14 @@ def render_gif(
         msg = "render_gif: overlay= is mutually exclusive with surface rendering (mo/dens)"
         raise ValueError(msg)
 
+    # skeletal_style is a 2D line diagram — GIF rotation/animation is not meaningful
+    _cd_flag = (isinstance(config, str) and config == "skeletal") or (
+        not isinstance(config, str) and config.skeletal_style
+    )
+    if _cd_flag:
+        msg = "render_gif: skeletal_style is not supported with GIF rendering"
+        raise ValueError(msg)
+
     if gif_rot and gif_rot not in ROTATION_AXES:
         test = gif_rot.lstrip("-")
         if not (test.isdigit() and len(test) >= 3):
@@ -984,38 +971,11 @@ def render_gif(
         logger.warning("rot_frames has no effect without gif_rot")
 
     # Resolve config
+    _gif_graph = molecule.graph if isinstance(molecule, Molecule) else load(molecule).graph
     if not isinstance(config, str):
         cfg = copy.copy(config)
-        # Apply hull overrides to pre-built config
-        if hull is not None:
-            if isinstance(hull, list):
-                cfg.show_convex_hull = True
-                # 1-indexed user input → 0-indexed internal
-                from xyzrender.hull import hull_indices_to_0indexed
-
-                cfg.hull_atom_indices = hull_indices_to_0indexed(hull)
-            else:
-                cfg.show_convex_hull = hull
-        if hull_color is not None:
-            if isinstance(hull_color, list):
-                cfg.hull_colors = hull_color
-            else:
-                cfg.hull_colors = [hull_color]
-        if hull_opacity is not None:
-            cfg.hull_opacity = hull_opacity
-        if hull_edge is not None:
-            cfg.show_hull_edges = hull_edge
-        if hull_edge_width_ratio is not None:
-            cfg.hull_edge_width_ratio = hull_edge_width_ratio
+        cfg.vectors = list(cfg.vectors)
     else:
-        _hull_flag: bool | None = True if isinstance(hull, list) else hull
-        # 1-indexed user input → 0-indexed for build_config
-        if isinstance(hull, list):
-            from xyzrender.hull import hull_indices_to_0indexed
-
-            _hull_idx: list[int] | list[list[int]] | None = hull_indices_to_0indexed(hull)
-        else:
-            _hull_idx = None
         cfg = build_config(
             config,
             canvas_size=canvas_size,
@@ -1039,13 +999,12 @@ def render_gif(
             hy=hy,
             no_hy=no_hy,
             orient=orient,
-            hull=_hull_flag,
-            hull_opacity=hull_opacity,
-            hull_colors=[hull_color] if isinstance(hull_color, str) else hull_color,
-            hull_idx=_hull_idx,
-            hull_edge=hull_edge,
-            hull_edge_width_ratio=hull_edge_width_ratio,
         )
+
+    # --- Convex hull (both config paths) ---
+    from xyzrender.hull import apply_hull_to_config
+
+    apply_hull_to_config(cfg, hull, hull_color, hull_opacity, hull_edge, hull_edge_width_ratio, _gif_graph)
 
     # Surface / hull mutual exclusivity (also catches hull set on pre-built config)
     if cfg.show_convex_hull and (mo or dens):
@@ -1148,29 +1107,23 @@ def render_gif(
                 _ov_charge = ref_graph.graph.get("total_charge", 0)
                 _ov_mult = ref_graph.graph.get("multiplicity")
                 overlay_mol = load(overlay, charge=_ov_charge, multiplicity=_ov_mult)
-            if overlay_color is not None:
-                from xyzrender.types import resolve_color
-
-                cfg.overlay_color = resolve_color(overlay_color)
+        if overlay_color is not None:
+            cfg.overlay_color = resolve_color(overlay_color)
             g2 = copy.deepcopy(overlay_mol.graph)
             aligned2 = align(ref_graph, g2)
             ref_graph = merge_graphs(ref_graph, g2, aligned2, overlay_color=cfg.overlay_color)
 
-        # --- Vector arrows (gif_rot only; needs ref_graph for COM) ---
-        if vector_scale is not None:
-            cfg.vector_scale = vector_scale
-        if vector_color is not None:
-            from xyzrender.types import resolve_color
-
-            cfg.vector_color = resolve_color(vector_color)
-        if vectors is not None:
-            if isinstance(vectors, list):
-                cfg.vectors = vectors
-            else:
-                from xyzrender.annotations import load_vectors
-
-                _vec_src = vectors if isinstance(vectors, dict) else Path(vectors)
-                cfg.vectors = load_vectors(_vec_src, ref_graph, default_color=cfg.vector_color)
+        # --- Vectors (user-supplied + crystal axes; gif_rot only) ---
+        _cell_data_for_vecs = molecule.cell_data if isinstance(molecule, Molecule) else None
+        _combine_vector_sources(
+            cfg,
+            ref_graph,
+            vector=vector,
+            vector_scale=vector_scale,
+            vector_color=vector_color,
+            cell_data=_cell_data_for_vecs,
+            axes=axes,
+        )
 
         cube_data = molecule.cube_data if isinstance(molecule, Molecule) else None
 
@@ -1186,7 +1139,6 @@ def render_gif(
                 _gif_mol,
                 cfg,
                 no_cell=no_cell,
-                axes=axes,
                 axis=axis,
                 ghosts=ghosts,
                 cell_color=cell_color,
@@ -1500,12 +1452,65 @@ def _resolve_cmap(
     return load_cmap(str(cmap), graph)
 
 
+def _combine_vector_sources(
+    cfg: "RenderConfig",
+    graph: "nx.Graph",
+    *,
+    vector=None,
+    vector_scale: "float | None" = None,
+    vector_color: "str | None" = None,
+    cell_data: "CellData | None" = None,
+    axes: bool = True,
+) -> None:
+    """Populate ``cfg.vectors`` from user-supplied vectors and crystal axis arrows.
+
+    Must be called *before* :func:`_apply_cell_config` so that all vectors are
+    already in ``cfg.vectors`` when :func:`orient_hkl_to_view` applies the HKL
+    rotation to the whole list in one pass.
+    """
+    if vector_scale is not None:
+        cfg.vector_scale = vector_scale
+    if vector_color is not None:
+        from xyzrender.types import resolve_color
+
+        cfg.vector_color = resolve_color(vector_color)
+    if vector is not None:
+        if not isinstance(vector, list):
+            from xyzrender.annotations import load_vectors
+
+            _vec_src = vector if isinstance(vector, dict) else Path(vector)
+            vector = load_vectors(_vec_src, graph, default_color=cfg.vector_color)
+        cfg.vectors.extend(vector)
+    if cell_data is not None and axes:
+        from xyzrender.types import VectorArrow
+
+        lat = cell_data.lattice
+        orig3d = cell_data.cell_origin
+        for vec, color, label in zip(lat, cfg.axis_colors, ("a", "b", "c"), strict=True):
+            length = float(np.linalg.norm(vec))
+            if length < 1e-6:
+                continue
+            frac = min(0.25, 2.0 / length)
+            cfg.vectors.append(
+                VectorArrow(
+                    vector=vec * frac,
+                    origin=orig3d,
+                    color=color,
+                    label=label,
+                    scale=1.0,
+                    draw_on_top=True,
+                    is_axis=True,
+                    font_size=cfg.label_font_size * 1.8,
+                    width=cfg.bond_width * 1.1,
+                )
+            )
+
+
 def _apply_cell_config(
     mol: Molecule,
     cfg: RenderConfig,
     *,
     no_cell: bool,
-    axes: bool,
     axis: str | None,
     ghosts: bool | None,
     cell_color: str | None,
@@ -1535,7 +1540,7 @@ def _apply_cell_config(
     if axis is not None:
         from xyzrender.viewer import orient_hkl_to_view
 
-        orient_hkl_to_view(mol.graph, cell_data, axis)
+        orient_hkl_to_view(mol.graph, cell_data, axis, cfg)
         cfg.auto_orient = False
 
     # Ghost (periodic image) atoms — default: on when cell_data is present
@@ -1544,31 +1549,6 @@ def _apply_cell_config(
         from xyzrender.crystal import add_crystal_images
 
         add_crystal_images(mol.graph, cell_data)
-
-    # Crystal axes a/b/c as annotation vectors at the cell origin
-    if axes:
-        from xyzrender.types import VectorArrow
-
-        lat = cell_data.lattice
-        orig3d = cell_data.cell_origin
-        for vec, color, label in zip(lat, cfg.axis_colors, ("a", "b", "c"), strict=True):
-            length = float(np.linalg.norm(vec))
-            if length < 1e-6:
-                continue
-            # Arrow spans 25% of the cell edge (max 2 Å) from the origin corner
-            frac = min(0.25, 2.0 / length)
-            cfg.vectors.append(
-                VectorArrow(
-                    vector=vec * frac,
-                    origin=orig3d,
-                    color=color,
-                    label=label,
-                    scale=1.0,
-                    draw_on_top=True,
-                    font_size=cfg.label_font_size * 1.8,
-                    width=cfg.bond_width * 1.1,
-                )
-            )
 
     # Default no-bo for periodic structures (bond orders are not PBC-aware)
     if bo_explicit is None:
