@@ -122,6 +122,9 @@ def main() -> None:
     disp_g = p.add_argument_group("display")
     disp_g.add_argument("--hy", nargs="*", type=int, default=None, help="Show H atoms (no args=all, or 1-indexed)")
     disp_g.add_argument("--no-hy", action="store_true", default=False, help="Hide all H atoms")
+    disp_g.add_argument(
+        "--no-bonds", action="store_true", default=False, help="Hide all bonds (e.g. space-filling style)"
+    )
     disp_g.add_argument("--bo", action=argparse.BooleanOptionalAction, default=None, help="Bond orders")
     disp_g.add_argument(
         "-k", "--kekule", action="store_true", default=False, help="Use Kekule bond orders (no aromatic 1.5)"
@@ -329,6 +332,18 @@ def main() -> None:
         help="Explicit colormap range (default: auto from file values)",
     )
     annot_g.add_argument(
+        "--cmap-palette",
+        default="viridis",
+        metavar="NAME",
+        help="Colormap palette name (default: viridis)",
+    )
+    annot_g.add_argument(
+        "--cmap-colorbar",
+        action="store_true",
+        default=False,
+        help="Add a vertical colorbar on the right showing the data range",
+    )
+    annot_g.add_argument(
         "--vector",
         default=None,
         metavar="FILE",
@@ -435,6 +450,7 @@ def main() -> None:
         fog_strength=args.fog_strength,
         bo=args.bo,
         hy=hy_spec,
+        hide_bonds=args.no_bonds,
         no_hy=args.no_hy,
         orient=_orient,
         opacity=args.opacity,
@@ -450,6 +466,8 @@ def main() -> None:
         show_indices=args.idx is not None,
         idx_format=args.idx or "sn",
         cmap_range=tuple(args.cmap_range) if args.cmap_range else None,
+        cmap_palette=args.cmap_palette,
+        cmap_colorbar=args.cmap_colorbar,
     )
 
     if args.skeletal_label_color is not None:

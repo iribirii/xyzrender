@@ -9,7 +9,9 @@ import networkx as nx
 import numpy as np
 from xyzgraph import DATA
 
-from xyzrender.colors import _FOG_NEAR, WHITE, blend_fog, cmap_viridis, get_color, get_gradient_colors
+from xyzrender.cmap import atom_colors as cmap_atom_colors
+from xyzrender.cmap import colorbar_extra_width, colorbar_svg
+from xyzrender.colors import _FOG_NEAR, WHITE, blend_fog, get_color, get_gradient_colors
 from xyzrender.dens import dens_layers_svg
 from xyzrender.hull import (
     get_convex_hull_edges_silhouette,
@@ -96,6 +98,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     else:
         fit_radii = radii
 
+    ref_scale = (_REF_CANVAS - 2 * cfg.padding) / _REF_SPAN
     # Expand canvas for surface bounds (MO / density / ESP are mutually exclusive)
     extra_lo = extra_hi = None
     if cfg.mo_contours is not None:
@@ -126,7 +129,6 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         extra_hi = np.maximum(extra_hi, box_hi) if extra_hi is not None else box_hi
     # Expand canvas to encompass vector arrow tips, tails, and labels
     if cfg.vectors:
-        _ref_px_per_ang = (_REF_CANVAS - 2 * cfg.padding) / _REF_SPAN
         _vec_tips = []
         for vi, va in enumerate(cfg.vectors):
             _vec_scale = 1.0 if va.is_axis else cfg.vector_scale
@@ -142,8 +144,8 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
             if not va.label:
                 continue
             tip2d = _vec_tips[vi][:2]
-            label_half_w = len(va.label) * cfg.label_font_size * 1.2 * 0.35 / _ref_px_per_ang
-            label_h = cfg.label_font_size * 1.2 / _ref_px_per_ang
+            label_half_w = len(va.label) * cfg.label_font_size * 1.2 * 0.35 / ref_scale
+            label_h = cfg.label_font_size * 1.2 / ref_scale
             lo = tip2d - np.array([label_half_w, label_h])
             hi = tip2d + np.array([label_half_w, label_h])
             extra_lo = np.minimum(extra_lo, lo) if extra_lo is not None else lo
@@ -152,7 +154,6 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
     # scale_ratio: encodes both molecule complexity AND canvas size so that
     # bond/label widths defined at _REF_CANVAS grow proportionally on larger canvases.
-    ref_scale = (_REF_CANVAS - 2 * cfg.padding) / _REF_SPAN
     scale_ratio = scale / ref_scale
     bw = cfg.bond_width * scale_ratio
     sw = cfg.atom_stroke_width * scale_ratio
@@ -164,7 +165,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         )
     z_order = np.argsort(pos[:, 2])
 
-    # Atom base colors — CPK by default, Viridis cmap when --cmap is active
+    # Atom base colors — CPK by default, palette cmap when --cmap is active
     if cfg.atom_cmap is not None:
         cmap_vals = cfg.atom_cmap
         if cfg.cmap_range is not None:
@@ -172,11 +173,15 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
         else:
             vmin = min(cmap_vals.values())
             vmax = max(cmap_vals.values())
-        vrange = max(vmax - vmin, 1e-10)
-        unlabeled = Color.from_hex(cfg.cmap_unlabeled)
-        colors = [cmap_viridis((cmap_vals[ai] - vmin) / vrange) if ai in cmap_vals else unlabeled for ai in range(n)]
+        colors = cmap_atom_colors(cmap_vals, n, cfg.cmap_palette, vmin, vmax, cfg.cmap_unlabeled)
     else:
         colors = [get_color(a, cfg.color_overrides) for a in a_nums]
+
+    # Reserve space on the right for the cmap colorbar.
+    # canvas_w stays at the molecule width so _proj() keeps the molecule centred there.
+    # _cb_svg_w is the full SVG width used only in the viewBox / width attribute.
+    cb_extra_w = colorbar_extra_width(vmin, vmax, fs_label) if (cfg.cmap_colorbar and cfg.atom_cmap is not None) else 0
+    _cb_svg_w = canvas_w + cb_extra_w
 
     # Override atom colors for overlay (mol2) atoms — must happen before gradient defs
     has_overlay = any(graph.nodes[nid].get("overlay", False) for nid in node_ids)
@@ -196,24 +201,25 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
 
     # Bond lookup: (bond_order, style, color_override)
     bonds: dict[tuple[int, int], tuple[float, BondStyle, str | None]] = {}
-    for i, j, d in graph.edges(data=True):
-        bo = d.get("bond_order", 1.0) if cfg.bond_orders else 1.0
-        bt = d.get("bond_type", "")
-        if bt == "TS" or d.get("TS", False):
-            style = BondStyle.DASHED
-        elif bt == "NCI" or d.get("NCI", False):
-            style = BondStyle.DOTTED
-        else:
-            style = BondStyle.SOLID
-        color_ov: str | None = d.get("bond_color_override")
-        bonds[(i, j)] = bonds[(j, i)] = (bo, style, color_ov)
-    # Manual overrides (add or restyle)
-    for i, j in cfg.ts_bonds:
-        existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
-        bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DASHED, existing[2])
-    for i, j in cfg.nci_bonds:
-        existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
-        bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DOTTED, existing[2])
+    if not cfg.hide_bonds:
+        for i, j, d in graph.edges(data=True):
+            bo = d.get("bond_order", 1.0) if cfg.bond_orders else 1.0
+            bt = d.get("bond_type", "")
+            if bt == "TS" or d.get("TS", False):
+                style = BondStyle.DASHED
+            elif bt == "NCI" or d.get("NCI", False):
+                style = BondStyle.DOTTED
+            else:
+                style = BondStyle.SOLID
+            color_ov: str | None = d.get("bond_color_override")
+            bonds[(i, j)] = bonds[(j, i)] = (bo, style, color_ov)
+        # Manual overrides (add or restyle)
+        for i, j in cfg.ts_bonds:
+            existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
+            bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DASHED, existing[2])
+        for i, j in cfg.nci_bonds:
+            existing = bonds.get((i, j), (1.0, BondStyle.SOLID, None))
+            bonds[(i, j)] = bonds[(j, i)] = (existing[0], BondStyle.DOTTED, existing[2])
 
     # Only hide C-H hydrogens (not O-H, N-H, free H, etc.)
     hidden = set()
@@ -225,7 +231,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 if neighbours and all(symbols[nb] == "C" for nb in neighbours):
                     hidden.add(ai)
 
-    aromatic_rings = _compute_aromatic_rings(graph, bonds)
+    aromatic_rings = [] if cfg.hide_bonds else _compute_aromatic_rings(graph, bonds)
 
     # Fog factors — normalized across depth range, with a dead-zone near the front
     fog_f = np.zeros(n)
@@ -238,7 +244,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
     # --- Build SVG ---
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'viewBox="0 0 {canvas_w} {canvas_h}" width="{canvas_w}" height="{canvas_h}"'
+        f'viewBox="0 0 {_cb_svg_w} {canvas_h}" width="{_cb_svg_w}" height="{canvas_h}"'
         + (' style="background:transparent"' if cfg.transparent else "")
         + ">"
     ]
@@ -735,21 +741,22 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                 svg.append(_text_svg(xi, yi, idx_text, fs_label, cfg.label_color, halo=False))
 
         # Bonds to deeper atoms
-        for aj in z_order[idx + 1 :]:
-            aj_int = int(aj)
-            if aj_int in hidden or (ai, aj_int) not in bonds:
-                continue
-            bo, style, color_ov = bonds[(ai, aj_int)]
-            # Use periodic_image_opacity if either endpoint is an image atom
-            _aj_image = graph.nodes[aj_int].get("image", False)
-            _aj_ens_op = graph.nodes[node_ids[aj_int]].get("ensemble_opacity") if not _aj_image else None
-            if is_image or _aj_image:
-                bond_op = cfg.periodic_image_opacity
-            elif _ens_op is not None or _aj_ens_op is not None:
-                bond_op = min(v for v in (_ens_op, _aj_ens_op) if v is not None)
-            else:
-                bond_op = 1.0
-            add_bond(ai, aj_int, bo, style, opacity=bond_op, color_override=color_ov)
+        if not cfg.hide_bonds and bw > 0:
+            for aj in z_order[idx + 1 :]:
+                aj_int = int(aj)
+                if aj_int in hidden or (ai, aj_int) not in bonds:
+                    continue
+                bo, style, color_ov = bonds[(ai, aj_int)]
+                # Use periodic_image_opacity if either endpoint is an image atom
+                _aj_image = graph.nodes[aj_int].get("image", False)
+                _aj_ens_op = graph.nodes[node_ids[aj_int]].get("ensemble_opacity") if not _aj_image else None
+                if is_image or _aj_image:
+                    bond_op = cfg.periodic_image_opacity
+                elif _ens_op is not None or _aj_ens_op is not None:
+                    bond_op = min(v for v in (_ens_op, _aj_ens_op) if v is not None)
+                else:
+                    bond_op = 1.0
+                add_bond(ai, aj_int, bo, style, opacity=bond_op, color_override=color_ov)
 
     # NCI patches in front of all atoms (z_depth > frontmost atom)
     while nci_lobe_idx < len(nci_lobes_flat):
@@ -849,6 +856,10 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True) 
                     canvas_w,
                     canvas_h,
                 )
+
+    # --- Colorbar (right side, only when --cmap-colorbar is active) ---
+    if cfg.cmap_colorbar and cfg.atom_cmap is not None:
+        svg.extend(colorbar_svg(vmin, vmax, cfg.cmap_palette, canvas_w, canvas_h, fs_label, cfg.label_color))
 
     svg.append("</svg>")
     raw = "\n".join(svg)

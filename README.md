@@ -34,7 +34,7 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Crystal / periodic structures** — render periodic structures with unit cell box, ghost atoms, and crystallographic axis arrows (a/b/c); extXYZ `Lattice=` auto-detected; VASP/QE via [`phonopy`](https://github.com/phonopy/phonopy)
 - **Multiple output formats** — SVG (default), PNG, PDF, and GIF from the same command
 
-**Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
+**Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`, `bubble`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
 
 ```bash
 xyzrender caffeine.xyz                          # SVG with sensible defaults
@@ -289,15 +289,16 @@ uv run bash examples/generate.sh
 
 ### Presets
 
-| Default | Flat | Paton (pymol-like) | Skeletal |
-|---------|------|--------------------|----------|
-| ![default](examples/images/caffeine_default.svg) | ![flat](examples/images/caffeine_flat.svg) | ![paton](examples/images/caffeine_paton.svg) | ![skeletal](examples/images/caffeine_skeletal.svg) |
+| Default | Flat | Paton (pymol-like) | Skeletal | Bubble |
+|---------|------|--------------------|----------|--------|
+| ![default](examples/images/caffeine_default.svg) | ![flat](examples/images/caffeine_flat.svg) | ![paton](examples/images/caffeine_paton.svg) | ![skeletal](examples/images/caffeine_skeletal.svg) | ![bubble](examples/images/caffeine_bubble.svg) |
 
 ```bash
 xyzrender caffeine.xyz -o caffeine_default.svg              # default preset
 xyzrender caffeine.xyz --config flat -o caffeine_flat.svg   # flat: no gradient
 xyzrender caffeine.xyz --config paton -o caffeine_paton.svg # paton: PyMOL-style
 xyzrender caffeine.xyz --config skeletal -o caffeine_skeletal.svg # skeletal formula diagram
+xyzrender caffeine.xyz --config bubble --hy -o caffeine_bubble.svg # space-filling-like
 ```
 
 The `paton` style is inspired by the clean styling used by [Rob Paton](https://github.com/patonlab) through PyMOL (see [gist](https://gist.github.com/bobbypaton/1cdc4784f3fc8374467bae5eb410edef))
@@ -542,10 +543,9 @@ xyzrender sn2.out --ts --label sn2_label.txt --label-size 40
 
 Color atoms by a per-atom scalar value using a Viridis-like colormap. Useful for partial charges, and any other atomic property.
 
-| Mulliken charges | Symmetric range |
-|------------------|------------------| 
-| ![cmap](examples/images/caffeine_cmap.gif) | ![cmap](examples/images/caffeine_cmap.svg) | 
-
+| Mulliken charges (rotation) | Symmetric range | With colorbar |
+|----------------------------|----------------|---------------|
+| ![Mulliken charges (rotation)](examples/images/caffeine_cmap.gif) | ![Symmetric range](examples/images/caffeine_cmap.svg) | ![With colorbar](examples/images/caffeine_cmap_colorbar.svg) |
 
 The colormap file has two columns - **1-indexed atom number** and value. Any extension works (*e.g.* `.txt`, `.csv`) as long as this file is comma or whitespace separated. Header lines (any line whose first token is not an integer) are silently skipped. Comment and blank lines (`#`) are also skipped.
 
@@ -559,6 +559,7 @@ The colormap file has two columns - **1-indexed atom number** and value. Any ext
 ```bash
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --gif-rot
 xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-range -0.5 0.5
+xyzrender caffeine.xyz --hy --cmap caffeine_charges.txt --cmap-colorbar
 ```
 
 - Atoms **in the file**: colored by Viridis-like colormap (dark purple → blue → green → yellow-green → bright yellow). This colormap never passes through white.

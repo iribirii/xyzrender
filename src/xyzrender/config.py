@@ -165,6 +165,7 @@ def build_config(
     vdw_opacity=None,
     vdw_scale=None,
     vdw_gradient_strength=None,
+    hide_bonds: bool = False,
     hy: bool | list[int] | None = None,
     no_hy: bool = False,
     orient: bool | None = None,
@@ -176,6 +177,8 @@ def build_config(
     idx_format: str = "sn",
     atom_cmap: dict[int, float] | None = None,
     cmap_range: tuple[float, float] | None = None,
+    cmap_palette: str = "viridis",
+    cmap_colorbar: bool = False,
 ) -> RenderConfig:
     """Build a :class:`~xyzrender.types.RenderConfig` from a preset and style kwargs.
 
@@ -240,6 +243,8 @@ def build_config(
             overrides[key] = val
     if transparent:
         overrides["transparent"] = True
+    if hide_bonds:
+        overrides["hide_bonds"] = True
 
     cfg = build_render_config(config_data, overrides)
     cfg.auto_orient = orient if orient is not None else True
@@ -260,6 +265,9 @@ def build_config(
         cfg.atom_cmap = atom_cmap
     if cmap_range is not None:
         cfg.cmap_range = cmap_range
+    cfg.cmap_palette = cmap_palette
+    if cmap_colorbar:
+        cfg.cmap_colorbar = True
 
     return cfg
 
