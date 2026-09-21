@@ -150,6 +150,39 @@ def test_render_atom_cmap_with_non_default_palette(caffeine):
     assert "#3b4cc0" in svg
 
 
+def test_render_bond_cmap(ethanol):
+    from xyzrender.cmap import bond_color_hex
+
+    vmin, vmax = 0.0, 1.0
+    svg = str(
+        render(
+            ethanol,
+            bond_cmap={(2, 3): vmin, (1, 2): vmax},
+            cmap_range=(vmin, vmax),
+            cmap_palette="coolwarm",
+            fog=False,
+            orient=False,
+        )
+    )
+    assert svg.startswith("<svg")
+    assert bond_color_hex(vmin, "coolwarm", vmin, vmax) in svg
+    assert bond_color_hex(vmax, "coolwarm", vmin, vmax) in svg
+
+
+def test_render_bond_cmap_with_colorbar(ethanol):
+    svg = str(
+        render(
+            ethanol,
+            bond_cmap={(2, 3): 1.0},
+            cmap_range=(0.0, 1.0),
+            cmap_palette="coolwarm",
+            cbar=True,
+            orient=False,
+        )
+    )
+    assert "linearGradient" in svg or "stop-color" in svg
+
+
 # ---------------------------------------------------------------------------
 # render() — hydrogen flags
 # ---------------------------------------------------------------------------

@@ -12,6 +12,32 @@ def cairosvg():
     return pytest.importorskip("cairosvg", reason="cairosvg required")
 
 
+def test_svg_raster_dimensions_wide_viewbox():
+    from xyzrender.export import svg_raster_dimensions
+
+    wide = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" width="1000" height="800"></svg>'
+    w, h = svg_raster_dimensions(wide, size=800)
+    assert w == 800
+    assert h == 640
+
+
+def test_svg_to_png_bytes_respects_viewbox_aspect(cairosvg):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from xyzrender.export import svg_to_png_bytes
+
+    wide = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" width="1000" height="800">'
+        '<rect x="950" y="10" width="40" height="40" fill="blue"/></svg>'
+    )
+    png = svg_to_png_bytes(wide, size=800)
+    img = Image.open(BytesIO(png))
+    assert img.width == 800
+    assert img.height == 640
+
+
 def test_svg_to_png_writes_file(cairosvg, tmp_path):
     from xyzrender.export import svg_to_png
 

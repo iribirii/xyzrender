@@ -38,3 +38,19 @@ Recommended palette set for `xyzrender`:
 
 - Best for `--cmap`: `viridis`, `plasma`, `coolwarm`
 - Best for ESP: `rainbow`, `coolwarm`, `RdBu`
+
+## Bond property colormap (`--bond-cmap`)
+
+Color **selected bonds** by a scalar (e.g. Mayer bond order, NBO occupancy). The file has three columns — **1-indexed atom i**, **atom j**, and **value**. Pairs are undirected (`2 3 v` equals `3 2 v`). Bonds not listed keep the normal bond styling.
+
+```text
+# bond_orders.txt
+14  22  0.57
+14  28  0.61
+```
+
+```bash
+xyzrender cluster.xyz --bond-cmap bond_orders.txt --cmap-palette coolwarm --cbar
+```
+
+Use the same `--cmap-range`, `--cmap-symm`, `--cmap-palette`, and `--cbar` flags as for atom `--cmap`. With both `--cmap` and `--bond-cmap`, the colorbar reflects the atom colormap.

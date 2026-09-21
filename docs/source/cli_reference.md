@@ -131,10 +131,12 @@ Full flag reference for `xyzrender`. See also `xyzrender --help`.
 | `--stereo [CLASSES]` | Stereochemistry labels from 3D geometry. Optional comma-separated class filter: `point`, `ez`, `axis`, `plane`, `helix`. Omit to show all |
 | `--stereo-style STYLE` | R/S label placement: `atom` (centered, default) or `label` (offset) |
 | `--cmap FILE` | Per-atom property colormap (1-indexed atom index, value) |
+| `--bond-cmap FILE` | Per-bond property colormap (1-indexed atom i, j, value); unlisted bonds unchanged |
 | `--cmap-range VMIN VMAX` | Explicit colormap range (default: auto from file) |
 | `--cmap-symm` | Symmetric colormap range about zero: `[-max(|v|), +max(|v|)]` |
 | `--cmap-palette NAME` | Shared scalar palette override (`viridis` for `--cmap`, `rainbow` for `--esp`) |
-| `--cbar` | Add a vertical colorbar on the right for `--cmap` or `--esp` |
+| `--cbar` | Add a vertical colorbar on the right for `--cmap`, `--bond-cmap`, or `--esp` |
+| `--cbar-unit TEXT` | Unit label under the colorbar (e.g. `kcal/mol`) |
 
 ## Vector arrows
 
