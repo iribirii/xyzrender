@@ -80,7 +80,8 @@ def test_load_bond_cmap_adds_missing_edge(ethanol, tmp_path, caplog):
         result = load_bond_cmap(str(path), graph)
     assert result[(2, 3)] == 1.0
     assert graph.has_edge(2, 3)
-    assert any("adding edge for coloring" in r.message for r in caplog.records)
+    assert graph.edges[2, 3].get("NCI") is True
+    assert any("adding NCI-style edge" in r.message for r in caplog.records)
 
 
 def test_load_bond_cmap_same_atom(ethanol, tmp_path):

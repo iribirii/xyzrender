@@ -72,6 +72,7 @@ def atom_colors(
 _BAR_W = 30.0
 _MARGIN = 16.0
 _TICK_GAP = 16.0
+_UNIT_ABOVE_BAR = 22.0  # gap between unit label and top of colorbar (px)
 
 
 def colorbar_extra_width(
@@ -135,7 +136,7 @@ def colorbar_svg(
 
     if unit:
         unit_fs = fs * 0.85
-        unit_y = max(unit_fs, bar_top - unit_fs * 0.55)
+        unit_y = bar_top - _UNIT_ABOVE_BAR - unit_fs / 2
         unit_attrs = (
             f'font-family="monospace" font-size="{unit_fs:.1f}px" fill="{label_color}" '
             f'dominant-baseline="central" text-anchor="middle"'

@@ -504,7 +504,7 @@ def render_svg(graph, config: RenderConfig | None = None, *, _log: bool = True, 
             _bc_palette = cfg.cmap_palette or DEFAULT_CMAP_PALETTE
             for (i, j), val in cfg.bond_cmap.items():
                 attrs = bonds.get((i, j))
-                if attrs is None or attrs.style != BondStyle.SOLID:
+                if attrs is None:
                     continue
                 if attrs.color is not None and (mol_bond_color is None or attrs.color != mol_bond_color):
                     continue

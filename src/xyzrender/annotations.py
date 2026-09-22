@@ -109,12 +109,12 @@ def _ensure_bond_for_cmap(i: int, j: int, graph, *, context: str) -> None:
     if graph.has_edge(i, j):
         return
     logger.warning(
-        "bond cmap: no existing bond between atoms %d and %d; adding edge for coloring (%s)",
+        "bond cmap: no existing bond between atoms %d and %d; adding NCI-style edge for coloring (%s)",
         i + 1,
         j + 1,
         context,
     )
-    graph.add_edge(i, j, bond_order=1.0)
+    graph.add_edge(i, j, bond_order=1.0, NCI=True)
 
 
 def _parse_spec(tokens: list[str], graph) -> list[Annotation]:

@@ -369,7 +369,8 @@ def test_resolve_bond_cmap_dict_adds_missing_edge(ethanol, caplog):
         out = _resolve_bond_cmap({(3, 4): 0.5}, graph)
     assert out[(2, 3)] == 0.5
     assert graph.has_edge(2, 3)
-    assert any("adding edge for coloring" in r.message for r in caplog.records)
+    assert graph.edges[2, 3].get("NCI") is True
+    assert any("adding NCI-style edge" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
