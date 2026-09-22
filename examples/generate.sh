@@ -16,6 +16,7 @@ xyzrender "$DIR/caffeine.xyz" --config graph -o "$IMG/caffeine_graph.svg"
 xyzrender "$DIR/caffeine.xyz" --config paton -o "$IMG/caffeine_paton.svg"
 xyzrender "$DIR/caffeine.xyz" --config skeletal -o "$IMG/caffeine_skeletal.svg"
 xyzrender "$DIR/caffeine.xyz" --config bubble --hy -o "$IMG/caffeine_bubble.svg"
+xyzrender "$DIR/caffeine.xyz" --config vdw -o "$IMG/caffeine_vdw.svg"
 xyzrender "$DIR/caffeine.xyz" --config tube -o "$IMG/caffeine_tube.svg"
 xyzrender "$DIR/caffeine.xyz" --config wire -o "$IMG/caffeine_wire.svg"
 xyzrender "$DIR/caffeine.xyz" --config pmol -o "$IMG/caffeine_pmol.svg"
@@ -81,7 +82,7 @@ xyzrender "$DIR/isothio_xtb.xyz" -c 1 --stereo -o "$IMG/isothio_stereo.svg"
 xyzrender "$DIR/mn-h2.log" --ts --stereo --no-orient -o "$IMG/mn-h2_ts_stereo.svg"
 
 echo "=== Molecular orbitals ==="
-xyzrender "$DIR/caffeine_lumo.cube" --mo --mo-colors maroon teal -o "$IMG/caffeine_lumo.svg"
+xyzrender "$DIR/caffeine_lumo.cube" --mo --mo-colors maroon teal --opacity 0.8 --mo-outline-width 5 -o "$IMG/caffeine_lumo.svg"
 xyzrender "$DIR/caffeine_homo.cube" --mo --hy --iso 0.03 -o "$IMG/caffeine_homo_iso_hy.svg"
 xyzrender "$DIR/caffeine_homo.cube" --mo -o "$IMG/caffeine_homo.svg" --gif-rot -go "$IMG/caffeine_homo.gif"
 
@@ -107,6 +108,7 @@ xyzrender "$DIR/caffeine.xyz" -o "$IMG/caffeine_xy.svg" --gif-rot xy -go "$IMG/c
 xyzrender "$DIR/caffeine.xyz" -o "$IMG/caffeine_bounce_50.svg" --gif-bounce 50 -go "$IMG/caffeine_bounce_50.gif"
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_rot.svg" --gif-rot --gif-ts --vdw 84-169 -go "$IMG/bimp.gif"
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_trj.svg" --gif-trj --ts -go "$IMG/bimp_trj.gif"
+xyzrender "$DIR/sn2.v000.xyz" --gif-trj --trj-bonds -go "$IMG/sn2_trj_bonds.gif"
 xyzrender "$DIR/mn-h2.log" -o "$IMG/mn-h2_gif.svg" --gif-ts -go "$IMG/mn-h2.gif"
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_ts_nci.svg" --ts --gif-trj --vdw 84-169 --nci -go "$IMG/bimp_nci_trj.gif"
 xyzrender "$DIR/bimp.out" -o "$IMG/bimp_ts_nci.svg" --gif-ts --gif-rot --vdw 84-169 --nci -go "$IMG/bimp_nci_ts.gif"
@@ -119,7 +121,8 @@ xyzrender "$DIR/ethanol.xyz" --vector "$DIR/ethanol_dip.json" -o "$IMG/ethanol_d
 xyzrender "$DIR/ethanol.xyz" --hy --vector "$DIR/ethanol_forces_efield.json" --vector-scale 1.5 -o "$IMG/ethanol_forces_efield.svg" -go "$IMG/ethanol_forces_efield.gif" --gif-rot  # per-atom forces, with rotation
 
 echo "=== Crystal / unit cell ==="
-xyzrender "$DIR/caffeine_cell.xyz" --cell -o "$IMG/caffeine_cell.svg" --no-orient --gif-rot -go "$IMG/caffeine_cell.gif" 
+xyzrender "$DIR/caffeine_cell.xyz" --cell -o "$IMG/caffeine_cell.svg" --no-orient --gif-rot -go "$IMG/caffeine_cell.gif"
+xyzrender "$DIR/caffeine_cell.xyz" --cell --unwrap --no-orient -o "$IMG/caffeine_cell_unwrap.svg"  # reassemble molecules split across boundaries
 xyzrender "$DIR/caffeine_cell.xyz" --cell-color maroon -o "$IMG/caffeine_cell_custom.svg" # custom edge color
 xyzrender "$DIR/caffeine_cell.xyz" --supercell 2 2 1 -o "$IMG/caffeine_cell_supercell_221.svg"                      # with ghosts
 xyzrender "$DIR/caffeine_cell.xyz" --supercell 2 2 1 --hy -o "$IMG/caffeine_cell_supercell_221_hy.svg"              # ghosts + all H
@@ -133,6 +136,7 @@ xyzrender "$DIR/NV63_cell.xyz" --no-cell -o "$IMG/NV63_cell_no_cell.svg"
 xyzrender "$DIR/NV63_cell.xyz" --supercell 2 2 1 --no-axes -o "$IMG/NV63_cell_supercell_221.svg"                    # with ghosts
 xyzrender "$DIR/NV63_cell.xyz" --axis 001 -o "$IMG/NV63_001.svg"   # looking down [001]
 xyzrender "$DIR/NV63_cell.xyz" --axis 111 --gif-rot 111 -o "$IMG/NV63_111.svg" -go "$IMG/NV63_111.gif"  # look down [111], rotate around [111]
+xyzrender "$DIR/roy.res" --axis 100 --unwrap -o "$IMG/roy_shelxl.svg"  # SHELXL .res (view down short a-axis; requires [shelxl])
 
 echo "=== Highlight ==="
 xyzrender "$DIR/caffeine.xyz" --hl "1-3,7" -o "$IMG/caffeine_hl.svg" --gif-rot -go "$IMG/caffeine_hl.gif"
@@ -161,7 +165,8 @@ xyzrender "$DIR/caffeine.xyz" --atom-opacity "1-6" 0.5 --radius-scale "4-8" 1.5 
 
 echo "=== Ensemble ==="
 xyzrender "$DIR/triphenylbenzol.xyz" --ensemble -o "$IMG/triphenylbenzol_ensemble.svg" --gif-rot -go "$IMG/triphenylbenzol_ensemble.gif"
-xyzrender "$DIR/triphenylbenzol.xyz" --ensemble --align 21,22,23 --ensemble-color viridis --opacity 0.4 -o "$IMG/triphenylbenzol_ensemble_custom.svg"
+xyzrender "$DIR/triphenylbenzol.xyz" --ensemble --ensemble-color cpk -o "$IMG/triphenylbenzol_ensemble_cpk.svg"
+xyzrender "$DIR/triphenylbenzol.xyz" --ensemble --align-atoms 21,22,23 --ensemble-color viridis --opacity 0.4 -o "$IMG/triphenylbenzol_ensemble_custom.svg"
 
 echo "=== Convex hull ==="
 xyzrender "$DIR/benzene.xyz" --hy --hull 1-6 -o "$IMG/benzene_ring_hull.svg" 

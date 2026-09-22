@@ -2,6 +2,20 @@
 
 All GIF output defaults to `{input_basename}.gif`. Override with `-go`.
 
+> **Python.** Most `xyzrender` flags map 1:1 to keyword arguments on `render_gif()` (`--gif-rot y` → `gif_rot="y"`, `--gif-bounce 50,x` → `gif_bounce=(50, "x")`, `-go out.gif` → `output="out.gif"`). The `--anchor "1-5,8"` selector becomes `anchor="1-5,8"` or `anchor=[1, 2, 3, 4, 5, 8]`. Unlike `render()`, `render_gif()` has no `vdw=` kwarg — set the vdW selection on a config and pass it via `config=` (indices are 0-based). See the [Python API guide](../python_api.md).
+>
+> ```python
+> from xyzrender import build_config, render_gif
+> render_gif("caffeine.xyz", gif_rot="y", output="caffeine.gif")
+> render_gif("caffeine.xyz", gif_bounce=(50, "x"))
+> render_gif("caffeine.xyz", gif_diffuse=True, anchor="1-5,8")
+>
+> # vdW spheres on atoms 84–169 (0-based: 83–168) in a TS + rotation GIF
+> cfg = build_config("default")
+> cfg.vdw_indices = list(range(83, 169))
+> render_gif("bimp.out", config=cfg, gif_ts=True, gif_rot="y")
+> ```
+
 ## Rotation GIF
 
 | Rotation (y) | Rotation (xy) |
@@ -51,6 +65,12 @@ xyzrender mn-h2.log --gif-ts -go mn-h2.gif
 xyzrender bimp.out --gif-rot --gif-ts --vdw 84-169 -go bimp.gif
 ```
 
+Use `--ts-bond` to skip automatic TS identification and provide a manual selection:
+
+```bash
+xyzrender mn-h2.log --gif-ts --ts-bond "1-2" -go mn-h2.gif
+```
+
 ## Trajectory
 
 ```{image} ../../../examples/images/bimp_trj.gif
@@ -66,6 +86,17 @@ xyzrender bimp.out --gif-trj --ts -go bimp_trj.gif
 `--gif-ts` and `--gif-trj` are mutually exclusive.
 ```
 
+For trajectories where connectivity changes (NEB-TS MEPs, reaction paths) add `--trj-bonds` to re-detect bonds per frame:
+
+```{image} ../../../examples/images/sn2_trj_bonds.gif
+:width: 50%
+:alt: SN2 MEP with per-frame bonds
+```
+
+```bash
+xyzrender sn2.v000.xyz --gif-trj --trj-bonds -go sn2_trj_bonds.gif
+```
+
 ## Diffuse / assembly
 
 ```{image} ../../../examples/images/caffeine_diffuse.gif
@@ -73,14 +104,13 @@ xyzrender bimp.out --gif-trj --ts -go bimp_trj.gif
 :alt: Diffuse assembly animation
 ```
 
-````{tab-set}
-```{tab-item} CLI
+```bash
 xyzrender caffeine.xyz --gif-diffuse -go caffeine_diffuse.gif
 ```
-```{tab-item} Python
+
+```python
 render_gif("caffeine.xyz", gif_diffuse=True, output="caffeine_diffuse.gif")
 ```
-````
 
 Options:
 

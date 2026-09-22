@@ -4,11 +4,15 @@ Overlays and style params are tested in combinations where possible to
 minimise the number of full render calls.
 """
 
+import re
+import subprocess
+import sys
 from pathlib import Path
 
+import networkx as nx
 import pytest
 
-from xyzrender import build_config, load, measure, render
+from xyzrender import build_config, load, measure, render, renderer
 from xyzrender.api import Molecule, SVGResult
 
 STRUCTURES = Path(__file__).parent.parent / "examples" / "structures"
@@ -67,6 +71,24 @@ def test_load_smiles():
     assert mol.graph.number_of_nodes() > 0
 
 
+def test_load_warns_when_mol_frame_is_ignored(caplog):
+    load(STRUCTURES / "caffeine.xyz", mol_frame=1)
+    assert "mol_frame has no effect" in caplog.text
+
+
+def test_load_cjson_mol_frame(tmp_path):
+    source = tmp_path / "frames.cjson"
+    source.write_text(
+        '{"chemicalJson":1,"atoms":{"elements":{"number":[6,6]},'
+        '"coords":{"3dSets":[[0,0,0,1.5,0,0],[0,0,0,0,2.5,0]]}},'
+        '"bonds":{"connections":{"index":[0,1]},"order":[1]}}'
+    )
+
+    mol = load(source, mol_frame=1)
+
+    assert mol.graph.nodes[1]["position"] == (0.0, 2.5, 0.0)
+
+
 # ---------------------------------------------------------------------------
 # SVGResult
 # ---------------------------------------------------------------------------
@@ -82,6 +104,25 @@ def test_svgresult_str(caffeine):
 def test_svgresult_jupyter_display(caffeine):
     result = render(caffeine, orient=False)
     assert result._repr_svg_().startswith("<svg")
+
+
+def test_render_svg_ids_are_unique_across_processes():
+    structure = STRUCTURES / "ethanol.xyz"
+    src = Path(__file__).parent.parent / "src"
+    script = (
+        f"import sys; sys.path.insert(0, {str(src)!r}); "
+        "from xyzrender import load, render; "
+        f"print(render(load({str(structure)!r}), orient=False, gradient=True)._repr_svg_())"
+    )
+
+    svgs = [
+        subprocess.run([sys.executable, "-c", script], check=True, capture_output=True, text=True).stdout
+        for _ in range(2)
+    ]
+    id_sets = [set(re.findall(r'id="([^"]+)', svg)) for svg in svgs]
+
+    assert id_sets[0]
+    assert id_sets[0].isdisjoint(id_sets[1])
 
 
 def test_svgresult_save(caffeine, tmp_path):
@@ -105,6 +146,140 @@ def test_render_accepts_path():
 def test_render_accepts_molecule(caffeine):
     result = render(caffeine, orient=False)
     assert isinstance(result, SVGResult)
+
+
+def _linear_test_molecule() -> Molecule:
+    g = nx.Graph()
+    atoms = [
+        ("C", (0.0, 0.0, 0.0)),
+        ("O", (1.2, 0.0, 0.0)),
+        ("N", (2.4, 0.0, 0.0)),
+        ("Na", (0.0, 20.0, 0.0)),
+    ]
+    for i, (sym, pos) in enumerate(atoms):
+        g.add_node(i, symbol=sym, position=pos)
+    g.add_edge(0, 1, bond_order=1)
+    g.add_edge(1, 2, bond_order=1)
+    return Molecule(g)
+
+
+def test_render_exclude_removes_atoms_and_incident_bonds():
+    mol = _linear_test_molecule()
+    svg = str(render(mol, exclude="2", orient=False, gradient=False))
+
+    assert svg.count("<circle ") == 3
+    assert "<line " not in svg
+
+
+def test_render_only_keeps_atoms_and_intra_bonds():
+    mol = _linear_test_molecule()
+    svg = str(render(mol, only="1-3", orient=False, gradient=False))
+
+    assert svg.count("<circle ") == 3
+    assert svg.count("<line ") == 2
+
+
+def test_filtered_graph_selectors_use_original_indices():
+    from xyzrender.api import _filter_molecule_atoms
+    from xyzrender.selectors import resolve_atom_indices
+
+    filtered = _filter_molecule_atoms(_linear_test_molecule(), only="2-3")
+
+    assert list(filtered.graph.nodes()) == [0, 1]
+    assert resolve_atom_indices("2", filtered.graph) == {0}
+    assert resolve_atom_indices("3", filtered.graph) == {1}
+
+
+def test_filtered_annotations_use_original_indices():
+    from xyzrender.annotations import AtomValueLabel, parse_annotations
+    from xyzrender.api import _filter_molecule_atoms
+
+    filtered = _filter_molecule_atoms(_linear_test_molecule(), only="2-3")
+
+    annotations = parse_annotations([["2", "mark"]], None, filtered.graph)
+
+    assert annotations == [AtomValueLabel(0, "mark")]
+
+
+def test_filtered_annotations_reject_excluded_original_index():
+    from xyzrender.annotations import parse_annotations
+    from xyzrender.api import _filter_molecule_atoms
+
+    filtered = _filter_molecule_atoms(_linear_test_molecule(), exclude="2")
+
+    with pytest.raises(ValueError, match="may have been excluded"):
+        parse_annotations([["2", "mark"]], None, filtered.graph)
+
+
+def test_filter_then_highlight_list_uses_original_indices():
+    svg = str(
+        render(
+            _linear_test_molecule(),
+            exclude="2,3",
+            highlight=[4],
+            orient=False,
+            gradient=False,
+            fog=False,
+            hy=True,
+        )
+    )
+
+    assert "#da70d6" in svg
+
+
+def test_auto_orient_runs_after_atom_filter(monkeypatch):
+    from xyzrender import renderer
+
+    seen_shapes = []
+
+    def fake_pca_orient(pos, *args, **kwargs):
+        seen_shapes.append(pos.shape)
+        if kwargs.get("return_matrix"):
+            import numpy as np
+
+            return pos, np.eye(3)
+        return pos
+
+    monkeypatch.setattr(renderer, "pca_orient", fake_pca_orient)
+
+    render(_linear_test_molecule(), only="1-3")
+
+    assert seen_shapes == [(3, 3)]
+
+
+def test_filter_preserves_cell_data_for_periodic():
+    from xyzrender.api import _filter_molecule_atoms
+
+    mol = load(STRUCTURES / "caffeine_cell.xyz")
+    assert mol.cell_data is not None
+
+    filtered = _filter_molecule_atoms(mol, only="C,N")
+
+    assert filtered.cell_data is not None
+    # cell_data is deep-copied, not aliased
+    assert filtered.cell_data is not mol.cell_data
+    # Only C and N survived
+    syms = {filtered.graph.nodes[n]["symbol"] for n in filtered.graph.nodes()}
+    assert syms == {"C", "N"}
+
+
+def test_render_periodic_with_only_filter(tmp_path):
+    mol = load(STRUCTURES / "caffeine_cell.xyz")
+    result = render(mol, only="C,N", orient=False, output=tmp_path / "cell_only.svg")
+    assert isinstance(result, SVGResult)
+    svg = (tmp_path / "cell_only.svg").read_text()
+    # Cell box edges still drawn for the filtered render
+    assert 'class="cell-edge"' in svg
+
+
+def test_render_periodic_filter_then_supercell_replicates():
+    mol = load(STRUCTURES / "caffeine_cell.xyz")
+    unit = str(render(mol, only="C,N", orient=False))
+    super_2x = str(render(mol, only="C,N", supercell=(2, 1, 1), orient=False))
+
+    # Supercell render must have more rendered atoms than the unit cell render
+    assert super_2x.count("<circle ") > unit.count("<circle ")
+    assert 'class="cell-edge"' in super_2x
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +411,46 @@ def test_render_no_hy_keeps_h_in_manual_ts_bond(caffeine):
     n_no_hy = str(render(caffeine, no_hy=True, orient=False)).count("<circle")
     n_with_ts = str(render(caffeine, no_hy=True, ts_bonds=[(h_idx + 1, heavy_idx + 1)], orient=False)).count("<circle")
     assert n_with_ts == n_no_hy + 1
+
+
+def _tetrahedral_carbon_graph(substituents: tuple[str, str, str, str]) -> nx.Graph:
+    """Build a tetrahedral carbon with the given substituent symbols."""
+    graph = nx.Graph()
+    graph.add_node(0, symbol="C", position=(0.0, 0.0, 0.0))
+    positions = [
+        (1.0, 1.0, 1.0),
+        (1.0, -1.0, -1.0),
+        (-1.0, 1.0, -1.0),
+        (-1.0, -1.0, 1.0),
+    ]
+    for index, (symbol, position) in enumerate(zip(substituents, positions, strict=True), start=1):
+        graph.add_node(index, symbol=symbol, position=position)
+        graph.add_edge(0, index, bond_order=1.0)
+    return graph
+
+
+def test_stereocenter_hydrogens():
+    stereogenic = _tetrahedral_carbon_graph(("H", "F", "Cl", "Br"))
+    non_stereogenic = _tetrahedral_carbon_graph(("H", "F", "F", "Br"))
+
+    assert renderer._stereocenter_hydrogens(stereogenic) == {1}
+    assert renderer._stereocenter_hydrogens(non_stereogenic) == set()
+
+
+def test_render_wires_stereocenter_hydrogens(monkeypatch):
+    graph = _tetrahedral_carbon_graph(("H", "F", "Cl", "Br"))
+    calls = []
+
+    def track_call(render_graph):
+        calls.append(render_graph)
+        return {1}
+
+    monkeypatch.setattr(renderer, "_stereocenter_hydrogens", track_call)
+
+    render(Molecule(graph), no_hy=True, orient=False, gradient=False)
+
+    assert len(calls) == 1
+    assert nx.utils.graphs_equal(calls[0], graph)
 
 
 # ---------------------------------------------------------------------------

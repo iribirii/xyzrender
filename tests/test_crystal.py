@@ -161,6 +161,115 @@ def test_build_supercell_different_axes():
         assert g2.number_of_nodes() == factor * n0, f"repeats={repeats}"
 
 
+def _reference_bonded_pairs(
+    pos_a: np.ndarray,
+    pos_b: np.ndarray,
+    eidx_a: np.ndarray,
+    eidx_b: np.ndarray,
+    elem_thresh: np.ndarray,
+) -> set[tuple[int, int]]:
+    """All-pairs distance check (ground truth for _find_bonded_pairs tests)."""
+    dists = np.linalg.norm(pos_a[:, None, :] - pos_b[None, :, :], axis=2)
+    thresh_mat = elem_thresh[eidx_a[:, None], eidx_b[None, :]]
+    ii, jj = np.where(dists < thresh_mat)
+    return set(zip(ii.tolist(), jj.tolist(), strict=False))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 42])
+def test_find_bonded_pairs_spatial_hash_square_grid(seed: int):
+    """_find_bonded_pairs uses the cell-list path when na * nb > 50_000 (square na == nb).
+
+    Covers the bulk of that function: B key sort, 27-offset key lookup, repeat /
+    b_order expansion, and final d² threshold filter.  Regression for MOF-scale
+    cells where a broken mask broadcast raised ValueError.
+    """
+    from xyzrender.crystal import _build_elem_thresh, _find_bonded_pairs
+
+    rng = np.random.default_rng(seed)
+    n = 240
+    assert n * n > 50_000
+    pos = rng.uniform(0.0, 50.0, size=(n, 3))
+    syms = ["C"] * n
+    elem_thresh, eidx, max_cutoff = _build_elem_thresh(syms)
+    shift = np.array([0.05, 0.0, 0.0], dtype=float)
+    pos_b = pos
+    pos_a = pos + shift
+
+    pairs_cell = set(_find_bonded_pairs(pos_a, pos_b, eidx, eidx, elem_thresh, max_cutoff))
+    pairs_ref = _reference_bonded_pairs(pos_a, pos_b, eidx, eidx, elem_thresh)
+    assert pairs_cell == pairs_ref
+
+
+def test_find_bonded_pairs_spatial_hash_rectangular_na_nb():
+    """Same spatial-hash branch with na != nb but na * nb still > 50_000."""
+    from xyzrender.crystal import _build_elem_thresh, _find_bonded_pairs
+
+    rng = np.random.default_rng(7)
+    na, nb = 300, 200
+    assert na * nb > 50_000
+    pos_a = rng.uniform(0.0, 40.0, size=(na, 3))
+    pos_b = rng.uniform(0.0, 40.0, size=(nb, 3))
+    # One (E, E) matrix for C/O pairs; indices match a=all C, b=all O.
+    elem_thresh, eidx_stacked, max_cutoff = _build_elem_thresh(["C"] * na + ["O"] * nb)
+    eidx_a = eidx_stacked[:na]
+    eidx_b = eidx_stacked[na:]
+
+    pairs_cell = set(_find_bonded_pairs(pos_a, pos_b, eidx_a, eidx_b, elem_thresh, max_cutoff))
+    pairs_ref = _reference_bonded_pairs(pos_a, pos_b, eidx_a, eidx_b, elem_thresh)
+    assert pairs_cell == pairs_ref
+
+
+# ---------------------------------------------------------------------------
+# build_supercell node ordering contract + ghost generation consistency
+# ---------------------------------------------------------------------------
+
+
+def test_build_supercell_node_ordering_matches_ids():
+    """Nodes must be inserted in ascending-id order so list(graph.nodes())[:n_base]
+    is the unit cell. _add_crystal_images_supercell slices that to find base positions."""
+    from xyzrender.crystal import build_supercell
+    from xyzrender.readers import load_molecule
+
+    g, _ = load_molecule(EXTXYZ_FILE)
+    lat = np.array(g.graph["lattice"], dtype=float)
+    from xyzrender.types import CellData
+
+    cd = CellData(lattice=lat)
+
+    sc = build_supercell(g, cd, (2, 2, 1))
+    nodes = list(sc.nodes())
+    assert nodes == sorted(nodes), "node insertion order must be ascending id"
+
+
+def test_add_crystal_images_supercell_matches_generic():
+    """Supercell-optimized and generic ghost paths must agree on a real crystal."""
+    from xyzrender.crystal import (
+        _add_crystal_images_generic,
+        _add_crystal_images_supercell,
+        build_supercell,
+    )
+    from xyzrender.readers import load_molecule
+    from xyzrender.types import CellData
+
+    src = EXAMPLES / "NV63_cell.xyz"
+    g, _ = load_molecule(src)
+    lat = np.array(g.graph["lattice"], dtype=float)
+    cd = CellData(lattice=lat)
+
+    repeats = (2, 2, 1)
+    sc_cell = CellData(lattice=lat * np.array(repeats)[:, None])
+
+    sc_generic = build_supercell(g, cd, repeats)
+    n_generic = _add_crystal_images_generic(sc_generic, sc_cell)
+
+    sc_opt = build_supercell(g, cd, repeats)
+    n_opt = _add_crystal_images_supercell(sc_opt, sc_cell, repeats, cd, g.number_of_nodes())
+
+    assert n_opt == n_generic, f"ghost count mismatch: optimized={n_opt}, generic={n_generic}"
+    assert sc_opt.number_of_nodes() == sc_generic.number_of_nodes()
+    assert sc_opt.number_of_edges() == sc_generic.number_of_edges()
+
+
 # ---------------------------------------------------------------------------
 # Renderer tests
 # ---------------------------------------------------------------------------
@@ -409,3 +518,162 @@ def test_orient_hkl_cell_corotates_with_ghost_atoms(vasp_crystal):
     frac = np.linalg.solve(cell_data.lattice.T, com - cell_data.cell_origin)
     assert np.all(frac > -0.5), f"COM fractional coords {frac} are far outside the cell after rotation"
     assert np.all(frac < 1.5), f"COM fractional coords {frac} are far outside the cell after rotation"
+
+
+def test_apply_axis_angle_rotation_keeps_ghost_atoms_with_parent_offset():
+    """After rotation, each ghost atom's offset from its source atom must equal the
+    pre-rotation offset rotated by the same matrix (i.e. ghosts move rigidly with
+    their source). Catches a class of bug where ghosts get treated as independent
+    atoms during rotation rather than rigid extensions of their unit-cell parent."""
+    import networkx as nx
+
+    from xyzrender.crystal import _add_crystal_images_generic
+    from xyzrender.types import CellData
+    from xyzrender.utils import apply_axis_angle_rotation
+
+    # Tight periodic chain — two carbons inside a 1.5 Å cell so the
+    # nearest-image bond crosses every face → guaranteed ghost atoms.
+    g = nx.Graph()
+    g.add_node(0, symbol="C", position=(0.2, 0.2, 0.2))
+    g.add_node(1, symbol="C", position=(0.5, 0.5, 0.5))
+    g.add_edge(0, 1, bond_order=1.0)
+    lat = np.array([[1.5, 0.0, 0.0], [0.0, 1.5, 0.0], [0.0, 0.0, 1.5]], dtype=float)
+    g.graph["lattice"] = lat
+    g.graph["lattice_origin"] = np.zeros(3)
+    cell = CellData(lattice=lat.copy(), cell_origin=np.zeros(3))
+    _add_crystal_images_generic(g, cell)
+
+    ghosts = [n for n in g.nodes() if g.nodes[n].get("image", False)]
+    if not ghosts:
+        pytest.skip("Periodic chain fixture failed to produce ghost atoms")
+
+    offsets_before = {}
+    for gh in ghosts:
+        src = g.nodes[gh]["source"]
+        offsets_before[gh] = np.asarray(g.nodes[gh]["position"], dtype=float) - np.asarray(
+            g.nodes[src]["position"], dtype=float
+        )
+
+    axis = np.array([1.0, 2.0, -1.0]) / np.sqrt(6.0)
+    angle = 47.0
+    apply_axis_angle_rotation(g, axis, angle)
+
+    theta = np.radians(angle)
+    c, s = np.cos(theta), np.sin(theta)
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    rot = c * np.eye(3) + s * k + (1 - c) * np.outer(axis, axis)
+
+    for gh, off_before in offsets_before.items():
+        src = g.nodes[gh]["source"]
+        off_after = np.asarray(g.nodes[gh]["position"], dtype=float) - np.asarray(g.nodes[src]["position"], dtype=float)
+        expected = rot @ off_before
+        assert np.allclose(off_after, expected, atol=1e-9), (
+            f"Ghost atom {gh} (source={src}) drifted relative to its source under rotation. "
+            f"expected offset={expected.tolist()}, got={off_after.tolist()}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# unwrap_molecules (--unwrap) tests — small mock cells, no rendering
+# ---------------------------------------------------------------------------
+
+_CUBE10 = np.array([[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0]], dtype=float)
+
+
+def _mock_graph(atoms, edges=()):
+    """Build a bare graph from (symbol, position) atoms and optional edges."""
+    import networkx as nx
+
+    g = nx.Graph()
+    for i, (sym, pos) in enumerate(atoms):
+        g.add_node(i, symbol=sym, position=pos)
+    for u, v in edges:
+        g.add_edge(u, v, bond_order=1.0)
+    return g
+
+
+def test_unwrap_reassembles_split_molecule():
+    """A diatomic split across the x boundary is reassembled to its true bond."""
+    from xyzrender.crystal import unwrap_molecules
+    from xyzrender.types import CellData
+
+    # Atoms at x=0.2 and x=9.8: in-cell gap is 9.6 Å, but the image at -0.2 is
+    # 0.4 Å from atom 0, so they are one molecule split across the boundary.
+    g = _mock_graph([("Cl", (0.2, 5.0, 5.0)), ("Cl", (9.8, 5.0, 5.0))])
+    unwrap_molecules(g, CellData(lattice=_CUBE10))
+
+    bond = np.linalg.norm(np.subtract(g.nodes[0]["position"], g.nodes[1]["position"]))
+    assert bond == pytest.approx(0.4, abs=1e-6)
+    assert g.has_edge(0, 1)  # cross-boundary bond recorded for the renderer
+
+
+def test_unwrap_anchors_at_majority_position():
+    """The majority of atoms stay put; only the minority (wrapped) atom moves.
+
+    Two atoms sit near the far x face (9.6, 9.9); one is wrapped to 0.2. Anchoring
+    keeps the majority in place and moves the wrapped atom out to 10.2 — this is
+    modal-shift anchoring, not a centre-of-mass wrap.
+    """
+    from xyzrender.crystal import unwrap_molecules
+    from xyzrender.types import CellData
+
+    g = _mock_graph(
+        [("Cl", (9.6, 5.0, 5.0)), ("Cl", (9.9, 5.0, 5.0)), ("Cl", (0.2, 5.0, 5.0))],
+        edges=[(0, 1)],
+    )
+    unwrap_molecules(g, CellData(lattice=_CUBE10))
+
+    assert g.nodes[0]["position"][0] == pytest.approx(9.6, abs=1e-6)
+    assert g.nodes[1]["position"][0] == pytest.approx(9.9, abs=1e-6)
+    assert g.nodes[2]["position"][0] == pytest.approx(10.2, abs=1e-6)
+    assert g.has_edge(1, 2)
+
+
+def test_unwrap_already_whole_is_noop():
+    """A contiguous molecule is left completely unchanged (no moves, no edges)."""
+    from xyzrender.crystal import unwrap_molecules
+    from xyzrender.types import CellData
+
+    g = _mock_graph([("Cl", (4.9, 5.0, 5.0)), ("Cl", (5.3, 5.0, 5.0))], edges=[(0, 1)])
+    pos0 = {n: g.nodes[n]["position"] for n in g.nodes()}
+    unwrap_molecules(g, CellData(lattice=_CUBE10))
+
+    assert g.number_of_edges() == 1
+    for n in g.nodes():
+        assert np.allclose(g.nodes[n]["position"], pos0[n])
+
+
+def test_unwrap_disconnected_atoms_untouched():
+    """Atoms with no bonds (nor image bonds) are each their own component: no-op."""
+    from xyzrender.crystal import unwrap_molecules
+    from xyzrender.types import CellData
+
+    g = _mock_graph([("Na", (1.0, 1.0, 1.0)), ("Cl", (5.0, 5.0, 5.0))])
+    pos0 = {n: g.nodes[n]["position"] for n in g.nodes()}
+    unwrap_molecules(g, CellData(lattice=_CUBE10))
+
+    assert g.number_of_edges() == 0
+    for n in g.nodes():
+        assert np.allclose(g.nodes[n]["position"], pos0[n])
+
+
+def test_unwrap_framework_is_noop_and_warns(caplog):
+    """A fully-connected periodic network (1D chain bonding to its own image) is
+    detected as a framework: positions unchanged, no edges added, warning logged."""
+    import logging
+
+    from xyzrender.crystal import unwrap_molecules
+    from xyzrender.types import CellData
+
+    # Cell edge 2 Å along x: atom 1 bonds atom 0's +x image → infinite chain.
+    lat = np.array([[2.0, 0.0, 0.0], [0.0, 20.0, 0.0], [0.0, 0.0, 20.0]], dtype=float)
+    g = _mock_graph([("C", (0.0, 0.0, 0.0)), ("C", (1.0, 0.0, 0.0))], edges=[(0, 1)])
+    pos0 = {n: g.nodes[n]["position"] for n in g.nodes()}
+
+    with caplog.at_level(logging.WARNING, logger="xyzrender.crystal"):
+        unwrap_molecules(g, CellData(lattice=lat))
+
+    assert g.number_of_edges() == 1  # no image bonds added
+    for n in g.nodes():
+        assert np.allclose(g.nodes[n]["position"], pos0[n])
+    assert any("periodic" in rec.message for rec in caplog.records)

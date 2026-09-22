@@ -181,7 +181,54 @@ def test_gif_diffuse_ts_incompatible():
     assert result.returncode != 0
 
 
+def test_gif_ts_manual_bonds_skip_auto_ts_load(monkeypatch, tmp_path):
+    import sys
+    from unittest.mock import patch
+
+    from xyzrender import api
+    from xyzrender.cli import main
+
+    source = _STRUCTURES / "sn2.out"
+    argv = [
+        "xyzrender",
+        str(source),
+        "--gif-ts",
+        "--ts-bond",
+        "1-3",
+        "-o",
+        str(tmp_path / "ts.svg"),
+        "-go",
+        str(tmp_path / "ts.gif"),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with (
+        patch.object(api, "load", wraps=api.load) as mock_load,
+        patch.object(api, "render"),
+        patch.object(api, "render_gif"),
+    ):
+        main()
+
+    assert mock_load.call_args_list[0].kwargs["ts_detect"] is False
+
+
 def test_hl_too_many_args():
     """--hl with >2 arguments should error."""
     result = _run_cli(str(_CAFFEINE), "--hl", "1-5", "red", "extra", expect_error=True)
     assert result.returncode != 0
+
+
+def test_cjson_camera_used_by_default(tmp_path):
+    """A CJSON camera is honoured unless --orient explicitly asks for PCA."""
+    result = _run_cli(str(_STRUCTURES / "coronene_colors.cjson"), "-o", str(tmp_path / "out.svg"))
+    assert result.returncode == 0
+    assert (tmp_path / "out.svg").exists()
+    assert "Applied saved camera orientation" in result.stderr
+
+
+@pytest.mark.parametrize("flag", ["--orient", "--no-orient"])
+def test_explicit_orient_flags_override_cjson_camera(tmp_path, flag):
+    """Both --orient (PCA) and --no-orient (raw coords) beat a saved camera."""
+    result = _run_cli(str(_STRUCTURES / "coronene_colors.cjson"), flag, "-o", str(tmp_path / "out.svg"))
+    assert result.returncode == 0
+    assert "Applied saved camera orientation" not in result.stderr

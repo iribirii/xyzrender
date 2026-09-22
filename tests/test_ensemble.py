@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from xyzrender import SVGResult, load, render
-from xyzrender.api import EnsembleFrames, _build_ensemble_molecule
+from xyzrender.api import EnsembleFrames, _build_ensemble_molecule, _filter_molecule_atoms
 from xyzrender.ensemble import align, merge_graphs
 from xyzrender.merge import _Z_NUDGE
 
@@ -34,6 +34,17 @@ def _make_traj(tmp_path: Path) -> Path:
     return xyz_path
 
 
+def _make_triatomic_traj(tmp_path: Path) -> Path:
+    frames = [
+        [("C", (0.0, 0.0, 0.0)), ("H", (1.0, 0.0, 0.0)), ("H", (0.0, 1.0, 0.0))],
+        [("C", (0.1, 0.0, 0.0)), ("H", (1.1, 0.1, 0.0)), ("H", (0.1, 1.0, 0.1))],
+        [("C", (-0.1, 0.0, 0.0)), ("H", (0.9, -0.1, 0.0)), ("H", (-0.1, 1.0, -0.1))],
+    ]
+    xyz_path = tmp_path / "triatomic_traj.xyz"
+    _write_multiframe_xyz(xyz_path, frames)
+    return xyz_path
+
+
 # ---------------------------------------------------------------------------
 # EnsembleFrames structure
 # ---------------------------------------------------------------------------
@@ -55,8 +66,8 @@ def test_build_ensemble_molecule(tmp_path: Path) -> None:
     assert len(ens.colors) == 3
     assert len(ens.opacities) == 3
 
-    # Default: no palette → CPK atom colors → all colors None
-    assert all(c is None for c in ens.colors)
+    # Default: spectral palette → non-None hex per conformer
+    assert all(c is not None and c.startswith("#") for c in ens.colors)
 
 
 def test_ensemble_opacity(tmp_path: Path) -> None:
@@ -96,6 +107,16 @@ def test_ensemble_palette_colors(tmp_path: Path) -> None:
     assert ens is not None
 
     assert all(c is not None and c.startswith("#") for c in ens.colors)
+
+
+def test_ensemble_cpk_colors(tmp_path: Path) -> None:
+    """'cpk' → no palette override; all conformer colors None (CPK atom colours)."""
+    xyz_path = _make_traj(tmp_path)
+    mol = _build_ensemble_molecule(xyz_path, ensemble_color="cpk")
+    ens = mol.ensemble
+    assert ens is not None
+
+    assert all(c is None for c in ens.colors)
 
 
 def test_ensemble_single_color_expanded(tmp_path: Path) -> None:
@@ -149,10 +170,10 @@ def test_merge_graphs_structure(tmp_path: Path) -> None:
     assert all(g.nodes[n].get("structure_color", "").startswith("#") for n in non_ref)
 
 
-def test_merge_graphs_no_colors(tmp_path: Path) -> None:
-    """Default (no palette): merge_graphs sets no structure_color — CPK used by renderer."""
+def test_merge_graphs_cpk_no_structure_color(tmp_path: Path) -> None:
+    """'cpk': merge_graphs sets no structure_color override — renderer falls back to CPK."""
     xyz_path = _make_traj(tmp_path)
-    mol = _build_ensemble_molecule(xyz_path)
+    mol = _build_ensemble_molecule(xyz_path, ensemble_color="cpk")
     ens = mol.ensemble
     assert ens is not None
 
@@ -222,6 +243,31 @@ def test_ensemble_render_twice_no_mutation(tmp_path: Path) -> None:
         assert mol.graph.nodes[n] == node_attrs_before[n]
     assert "<svg" in (tmp_path / "out1.svg").read_text()
     assert "<svg" in (tmp_path / "out2.svg").read_text()
+
+
+def test_ensemble_exclude_filters_all_frames(tmp_path: Path) -> None:
+    xyz_path = _make_triatomic_traj(tmp_path)
+    mol = load(xyz_path, ensemble=True)
+
+    filtered = _filter_molecule_atoms(mol, exclude="2")
+
+    assert filtered.graph.number_of_nodes() == 2
+    assert filtered.ensemble is not None
+    assert filtered.ensemble.positions.shape == (3, 2, 3)
+    assert [filtered.graph.nodes[n]["symbol"] for n in filtered.graph.nodes()] == ["C", "H"]
+    result = render(filtered, output=tmp_path / "filtered.svg")
+    assert isinstance(result, SVGResult)
+
+
+def test_build_ensemble_with_filtered_reference_filters_trajectory_frames(tmp_path: Path) -> None:
+    xyz_path = _make_triatomic_traj(tmp_path)
+    ref = _filter_molecule_atoms(load(xyz_path), exclude="2")
+
+    mol = _build_ensemble_molecule(xyz_path, reference_mol=ref)
+
+    assert mol.graph.number_of_nodes() == 2
+    assert mol.ensemble is not None
+    assert mol.ensemble.positions.shape == (3, 2, 3)
 
 
 # ---------------------------------------------------------------------------

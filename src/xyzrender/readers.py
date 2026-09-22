@@ -158,10 +158,11 @@ def load_molecule(
     path:
         Path to the input file.  Supported extensions: ``.xyz``, ``.cube``,
         ``.cub``,
-        ``.mol``, ``.sdf``, ``.mol2``, ``.pdb``, ``.smi``, ``.cif``, and
-        any format supported by cclib.
+        ``.mol``, ``.sdf``, ``.mol2``, ``.pdb``, ``.smi``, ``.cif``,
+        ``.cjson``, and any format supported by cclib.
     frame:
-        Zero-based frame index for multi-record SDF files (default: 0).
+        Zero-based frame index for multi-record SDF files and CJSON
+        ``3dSets`` coordinate sets (default: 0).
     charge:
         Formal charge override (0 = use value from file when available).
     multiplicity:
@@ -252,7 +253,31 @@ def load_molecule(
             # so without this adjustment the cell box appears disconnected.
             centroid = np.array([pos for _, pos in data.atoms], dtype=float).mean(axis=0)
             cell_origin = centroid - 0.5 * data.pbc_cell.sum(axis=0)
+            graph.graph["lattice"] = data.pbc_cell
+            graph.graph["lattice_origin"] = cell_origin
             crystal = CellData(lattice=data.pbc_cell, cell_origin=cell_origin)
+    elif p.endswith(".cjson"):
+        data = fmt.parse_cjson(p, frame=frame)
+        # A CJSON unit cell means bond orders will be suppressed at render time.
+        graph = graph_from_moldata(
+            data,
+            charge=charge,
+            multiplicity=multiplicity,
+            kekule=kekule,
+            rebuild=rebuild,
+            quick=quick or data.pbc_cell is not None,
+        )
+        if data.pbc_cell is not None:
+            # CJSON coordinates are referenced to a cell origin at (0, 0, 0).
+            graph.graph["lattice"] = data.pbc_cell
+            graph.graph["lattice_origin"] = np.zeros(3)
+            crystal = CellData(lattice=data.pbc_cell)
+        if data.camera is not None:
+            # Consumed by api.load(), which rotates the molecule into the
+            # saved view and marks it oriented.
+            graph.graph["camera_rotation"] = data.camera.rotation
+            if data.camera.perspective:
+                logger.info("CJSON camera is perspective; xyzrender renders orthographically")
     elif p.endswith(".smi"):
         smi = Path(p).read_text(encoding="utf-8").splitlines()[0].strip()
         data = fmt.parse_smiles(smi, kekule=kekule)
@@ -269,6 +294,16 @@ def load_molecule(
         # CIF is always periodic — bond orders are always suppressed at render time
         graph = build_graph(data.atoms, charge=charge, multiplicity=multiplicity, kekule=kekule, quick=True)
         assert data.pbc_cell is not None
+        graph.graph["lattice"] = data.pbc_cell
+        graph.graph["lattice_origin"] = np.zeros(3)
+        crystal = CellData(lattice=data.pbc_cell)
+    elif p.endswith((".res", ".ins")):
+        data = fmt.parse_shelxl(p)
+        # SHELXL is periodic — bond orders are always suppressed at render time
+        graph = build_graph(data.atoms, charge=charge, multiplicity=multiplicity, kekule=kekule, quick=True)
+        assert data.pbc_cell is not None
+        graph.graph["lattice"] = data.pbc_cell
+        graph.graph["lattice_origin"] = np.zeros(3)
         crystal = CellData(lattice=data.pbc_cell)
     elif _is_vasp_file(p):
         from xyzrender.inputs import parse_poscar
@@ -395,6 +430,7 @@ def graph_from_moldata(
         graph.graph["total_charge"] = _eff_charge
         if multiplicity is not None:
             graph.graph["multiplicity"] = multiplicity
+        _stamp_file_colors(graph, data)
         return graph
 
     # Fall back to xyzgraph distance-based detection
@@ -411,7 +447,22 @@ def graph_from_moldata(
         graph.number_of_nodes(),
         graph.number_of_edges(),
     )
+    _stamp_file_colors(graph, data)
     return graph
+
+
+def _stamp_file_colors(graph: nx.Graph, data) -> None:
+    """Copy per-atom colours from *data* onto graph nodes as ``file_color``.
+
+    These override CPK and preset element colours.  ``--cmap``,
+    ``--mol-color``, and highlights still take precedence.
+    """
+    if not data.colors:
+        return
+    for i, hex_color in enumerate(data.colors):
+        if i in graph.nodes:
+            graph.nodes[i]["file_color"] = hex_color
+    logger.debug("Applied %d per-atom colours from file", len(data.colors))
 
 
 def load_ts_molecule(
@@ -672,6 +723,42 @@ def _load_xyz_frames(path: str) -> list[dict]:
     return frames
 
 
+def _looks_like_rdkit_mol(obj) -> bool:
+    """Return True if *obj* looks like an RDKit Mol without importing rdkit."""
+    cls = type(obj)
+    return (
+        cls.__name__ == "Mol"
+        and cls.__module__.startswith("rdkit.")
+        and hasattr(obj, "GetAtoms")
+        and hasattr(obj, "GetNumAtoms")
+    )
+
+
+def _load_rdkit_frames(mol) -> list[dict]:
+    """Convert RDKit conformers to xyzrender ensemble frame dicts."""
+    symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
+    frames = []
+    logger.debug(
+        "RDKit MolObject: %d conformers, %d atoms per conformer",
+        mol.GetNumConformers(),
+        mol.GetNumAtoms(),
+    )
+    for conf in mol.GetConformers():
+        positions = []
+        for i in range(mol.GetNumAtoms()):
+            p = conf.GetAtomPosition(i)
+            positions.append([float(p.x), float(p.y), float(p.z)])
+
+        frames.append(  # Frames contains all atom symbols and their positions in a dictionary -> Conformer-wise entry
+            {
+                "symbols": symbols,
+                "positions": positions,
+            }
+        )
+
+    return frames
+
+
 def _parse_extxyz_lattice(comment: str) -> np.ndarray | None:
     """Extract Lattice matrix from an XYZ comment line.
 
@@ -777,13 +864,31 @@ def _load_qm_frames(path: str) -> list[dict]:
     if parser is None:
         msg = f"cclib could not identify the file type of {path}"
         raise ValueError(msg)
+    parser_class = type(parser).__name__
     try:
         data = parser.parse()
     except Exception as e:
         logger.debug("cclib raised during parse; attempting to use partial data: %s", e)
         data = parser
     symbols = [DATA.n2s[int(z)] for z in data.atomnos]
-    coords = np.array(data.atomcoords)
-    logger.debug("cclib trajectory: %d steps, %d atoms", len(coords), len(symbols))
+    coords = np.array(data.atomcoords) if getattr(data, "atomcoords", None) is not None else np.empty((0, 0, 3))
+    n_frames = len(coords)
+    cclib_ver = getattr(cclib, "__version__", "unknown")
 
+    logger.info(
+        "cclib %s parsed %d frame(s) from %s (parser=%s)",
+        cclib_ver,
+        n_frames,
+        path,
+        parser_class,
+    )
+    if n_frames <= 1:
+        logger.warning(
+            "only %d frame(s) parsed from %s — file may not contain the expected "
+            "multistep data. Check cclib version or file format.",
+            n_frames,
+            path,
+        )
+
+    logger.debug("cclib trajectory: %d steps, %d atoms", n_frames, len(symbols))
     return [{"symbols": symbols, "positions": step.tolist()} for step in coords]

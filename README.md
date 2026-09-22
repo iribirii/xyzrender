@@ -4,7 +4,7 @@
 
 # xyzrender: Publication-quality molecular graphics.
 
-Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, cube files, quantum chemistry input or output — from the command line or from Python/Jupyter.
+Render molecular structures as publication-quality SVG, PNG, PDF, and animated GIF from XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, SHELXL, cube files, quantum chemistry input or output — from the command line or from Python/Jupyter.
 
 [![PyPI Downloads](https://static.pepy.tech/badge/xyzrender)](https://pepy.tech/projects/xyzrender)
 [![License](https://img.shields.io/github/license/aligfellow/xyzrender)](https://github.com/aligfellow/xyzrender/blob/main/LICENSE)
@@ -16,7 +16,7 @@ Render molecular structures as publication-quality SVG, PNG, PDF, and animated G
 [![Documentation](https://readthedocs.org/projects/xyzrender/badge/?version=latest)](https://xyzrender.readthedocs.io/en/latest/)
 [![Docs](https://img.shields.io/badge/docs-readthedocs-blue?logo=readthedocs)](https://xyzrender.readthedocs.io)
 
-xyzrender turns molecular structures into clean vector SVG graphics — plus PNG, PDF, and animated GIF — ready for papers, presentations, and supporting information. It reads XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, cube files, and QM input/output files from Gaussian, ORCA, NWChem, Q-Chem, Psi4, MOPAC, GAMESS, Turbomole, and periodic codes (VASP, Quantum ESPRESSO, SIESTA, ABINIT, CP2K). The SVG rendering approach is built on and inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling).
+xyzrender turns molecular structures into clean vector SVG graphics — plus PNG, PDF, and animated GIF — ready for papers, presentations, and supporting information. It reads XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, SHELXL, cube files, and QM input/output files from Gaussian, ORCA, NWChem, Q-Chem, Psi4, MOPAC, GAMESS, Turbomole, and periodic codes (VASP, Quantum ESPRESSO, SIESTA, ABINIT, CP2K). The SVG rendering approach is built on and inspired by [**xyz2svg**](https://github.com/briling/xyz2svg) by [Ksenia Briling **@briling**](https://github.com/briling).
 
 Most molecular visualisation tools require manual setup: loading files into a GUI, tweaking camera angles, exporting at the right resolution and adding specific TS or NCI bonds. `xyzrender` skips this. One command gives you a (mostly) oriented, depth-cued structure with correct bond orders, aromatic ring rendering, automatic bond connectivity, with automatic TS / NCI bond detection. Orientation control is available through an interface to [**v**](https://github.com/briling/v) by [Ksenia Briling **@briling**](https://github.com/briling).
 
@@ -29,18 +29,18 @@ Most molecular visualisation tools require manual setup: loading files into a GU
 - **Stereochemistry labels** — R/S, E/Z, axial, planar (metallocene and CIP), and helical chirality labels detected and annotated automatically via [`xyzgraph`](https://github.com/aligfellow/xyzgraph)
 - **Non-covalent interactions** — hydrogen bonds and other weak interactions shown as dotted lines, detected automatically via [`xyzgraph`](https://github.com/aligfellow/xyzgraph)
 - **Bond display rules** — selectively hide or add bonds using element categories (`M`, `sbm`, `L`, `het`), element pairs (`M-L`, `Fe-het`), pi-coordination (`M-pi`), or atom indices; haptic mode replaces pi-coordination fans with single centroid bonds
-- **Surfaces** — molecular orbitals, electron density, ESP colormapping, NCI surfaces, and vdW spheres; solid, mesh, contour, wire, and dot styles
+- **Surfaces** — molecular orbitals, electron density, ESP colormapping, NCI surfaces, and vdW spheres; solid, mesh, contour, and dot styles; lobe outlines for opaque MOs; interlocked-silhouette vdW spheres based on [CineMol](https://github.com/moltools/CineMol)-style
 - **Styling** — highlight & molecule color, radius scaling (by element, category, or index), per-atom fill opacity (bond-agnostic), style regions, atom property colormaps with colorbar, and depth-of-field / depth-fog effects
 - **Annotations** — distances, angles, dihedrals, custom labels, atom indices, and 3D vector arrows (dipoles, forces, fields)
-- **Structural overlay** — RMSD-align two structures and render in contrasting colours; works across different atom counts via automatic scaffold detection. Independent style overrides (atom/bond size, stroke, opacity, per-overlay bond rules), and `--no-align` to skip alignment when geometries already share a frame
+- **Structural overlay** — overlay two structures in contrasting colours; auto-aligned by best-fit (centres on the metals when present, falls back to fuzzy substructure matching that tolerates atom substitutions, then geometric best-fit). Override with `--align-atoms`. Per-overlay style knobs; `--no-align` keeps raw coords
 - **Conformer ensemble** — overlay all frames from a multi-frame XYZ trajectory, with palette colouring and opacity control
 - **Convex hull, hull faces & pores** — semi-transparent facets over selected atoms or rings, exposed faces of molecular cages, and pore rendering
 - **GIF animations** — rotation, TS vibration, trajectory, diffuse/assembly, and depth-of-field animations
-- **Input formats** — XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, cube files, and QM input/output from Gaussian, ORCA, NWChem, Q-Chem, Psi4, MOPAC, GAMESS, Turbomole, CP2K, VASP, Quantum ESPRESSO, SIESTA, and ABINIT
-- **Crystal / periodic structures** — unit cell box, ghost atoms, supercells, and crystallographic axis arrows; auto-detected from VASP POSCAR, QE pw.in, SIESTA FDF, ABINIT, CP2K, and extXYZ `Lattice=` headers
+- **Input formats** — XYZ, mol/SDF, MOL2, PDB, SMILES, CIF, SHELXL, cube files, and QM input/output from Gaussian, ORCA, NWChem, Q-Chem, Psi4, MOPAC, GAMESS, Turbomole, CP2K, VASP, Quantum ESPRESSO, SIESTA, and ABINIT
+- **Crystal / periodic structures** — unit cell box, ghost atoms, supercells, and crystallographic axis arrows; auto-detected from VASP POSCAR, QE pw.in, SIESTA FDF, ABINIT, CP2K, SHELXL `.res`/`.ins`, CIF, and extXYZ `Lattice=` headers
 - **Multiple output formats** — vector SVG (default), PNG, PDF, and GIF — all from the same command
 
-**Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`, `skeletal`, `bubble`, `tube`, `mtube`, `btube`, `wire`, `graph`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
+**Preconfigured but extensible.** Built-in presets (`default`, `flat`, `paton`, `pmol`, `skeletal`, `bubble`, `vdw`, `tube`, `mtube`, `btube`, `wire`, `graph`) cover common use cases. Every setting — colors, radii, bond widths, gradients, fog — can be overridden via CLI flags or a custom JSON config file.
 
 ```bash
 xyzrender caffeine.xyz                          # SVG with sensible defaults
@@ -53,69 +53,33 @@ See web app by [@BNNLab](https://github.com/bnnlab) [**xyzrender-web.streamlit.a
 ## Installation
 
 ```bash
-pip install xyzrender
-# latest development version:
-pip install --upgrade git+https://github.com/aligfellow/xyzrender.git
+pip install xyzrender                                              # stable from PyPI
+uv tool install xyzrender                                          # or via uv
+uvx xyzrender mol.xyz                                              # try without installing
+pip install git+https://github.com/aligfellow/xyzrender.git        # from source
 ```
 
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv tool install xyzrender
-# latest development version:
-uv tool install git+https://github.com/aligfellow/xyzrender.git
-```
-
-To test without installing, you can use [uvx](https://docs.astral.sh/uv/guides/tools/#running-tools)
-
-```bash
-uvx xyzrender 
-```
-
-### From Source:
-
-Using pip: 
-
-```bash
-git clone https://github.com/aligfellow/xyzrender.git
-cd xyzrender
-pip install .
-# install in editable mode
-pip install -e .
-# or straight from git
-pip install git+https://github.com/aligfellow/xyzrender.git
-```
-For more information on installation and optional dependencies (crystal, SMILES, CIF, GIF), see the [installation docs](https://xyzrender.readthedocs.io/en/latest/installation.html)
+Optional extras (`[smi]`, `[cif]`, `[shelxl]`, `[v]`, `[all]`) and full setup in the [installation docs](https://xyzrender.readthedocs.io/en/latest/installation.html).
 
 ## Quick start
 
 ```bash
-xyzrender caffeine.xyz                                    # render XYZ → SVG
-xyzrender calc.out                                        # QM output (ORCA, Gaussian, etc.)
-xyzrender caffeine.xyz -o render.png                      # explicit output path/format
-xyzrender caffeine.xyz --config paton --hy -o styled.svg  # preset + show hydrogens
-xyzrender caffeine.xyz --config pmol --hy -o pmol.svg     # ball-and-stick + element-coloured bonds
-xyzrender caffeine.xyz --config graph -o graph.svg        # minimalist graph-style rendering
-xyzrender sn2.out --ts --hy -o ts.svg                     # auto-detect TS bonds
-xyzrender caffeine.xyz --gif-rot -go caffeine.gif         # rotation GIF
-xyzrender caffeine.xyz --gif-bounce 50 -go caffeine_bounce_50.gif  # bounce GIF (±50°)
-xyzrender caffeine.xyz --glow "N,O" --glow-strength 4 -o glow.svg  # atom glow
+xyzrender caffeine.xyz                            # XYZ → SVG, auto-oriented
+xyzrender calc.out --ts                           # QM output with TS bonds
+xyzrender caffeine.xyz --config pmol --hy         # preset + hydrogens
+xyzrender caffeine.xyz --gif-rot -go caffeine.gif # rotation GIF
 ```
-
-### Python API
 
 ```python
 from xyzrender import load, render, render_gif
 
 mol = load("caffeine.xyz")
 render(mol)                          # displays inline in Jupyter
-render(mol, output="caffeine.svg")   # save as SVG/PNG/PDF
-
-render(mol, config="paton", hy=True) # all CLI flags as kwargs
-render_gif(mol, gif_rot="y")         # rotation GIF
+render(mol, config="paton", hy=True) # any CLI flag works as a kwarg
+render_gif(mol, gif_rot="y")
 ```
 
-For the full Python API (render options, `build_config()`, `measure()`, `load()` kwargs, return types), see the [Python API guide](https://xyzrender.readthedocs.io/en/latest/python_api.html) or the runnable [`examples/examples.ipynb`](examples/examples.ipynb) notebook.
+Full usage, the Python API guide, every flag, and runnable examples live in the [documentation](https://xyzrender.readthedocs.io) and the [`examples/examples.ipynb`](examples/examples.ipynb) notebook.
 
 ## Feature gallery
 
@@ -129,9 +93,9 @@ For the full Python API (render options, `build_config()`, `measure()`, `load()`
 |--------|------|------------|-----|
 | ![skeletal](examples/images/caffeine_skeletal.svg) | ![bubble](examples/images/caffeine_bubble.svg) | ![tube](examples/images/caffeine_tube.svg) | ![btube](examples/images/caffeine_btube.svg) |
 
-| Wire | Graph | MTube |
-|--|--|--|
-| ![wire](examples/images/caffeine_wire.svg) | ![graph](examples/images/caffeine_graph.svg) | ![mtube](examples/images/caffeine_mtube.svg) |
+| Wire | Graph | MTube | vdW |
+|--|--|--|--|
+| ![wire](examples/images/caffeine_wire.svg) | ![graph](examples/images/caffeine_graph.svg) | ![mtube](examples/images/caffeine_mtube.svg) | ![vdw](examples/images/caffeine_vdw.svg) |
 
 | MTube + `unbond pi` | `haptic` |
 |--|--|
@@ -178,17 +142,11 @@ For the full Python API (render options, `build_config()`, `measure()`, `load()`
 |------------------------------|----------------------------------|---------------------------------|
 | ![Co scaled](examples/images/CoCl6_scaled_Co2.svg) | ![multi scale](examples/images/caffeine_scaled_multigroup.svg) | ![atom opacity](examples/images/caffeine_atom_opacity.svg) |
 
-### Depth of field
+### Depth of field / Glow
 
-| DoF | Rotation |
-|-----|----------| 
-| ![dof](examples/images/caffeine_dof.svg) | ![dof](examples/images/caffeine_dof.gif) |
-
-### Glow
-
-| Glow (N,O atoms) |
-|------------------|
-| ![glow](examples/images/caffeine_glow.svg) |
+| DoF | Rotation | Glow (N,O atoms) |
+|-----|----------|------------------|
+| ![dof](examples/images/caffeine_dof.svg) | ![dof](examples/images/caffeine_dof.gif) | ![glow](examples/images/caffeine_glow.svg) |
 
 ### Structural overlay & ensemble
 
@@ -196,9 +154,9 @@ For the full Python API (render options, `build_config()`, `measure()`, `load()`
 |---------|---------------|----------------|-----------------------|
 | ![overlay](examples/images/isothio_overlay.svg) | ![overlay custom](examples/images/isothio_overlay_custom.svg) | ![cross-molecule overlay](examples/images/isothio_overlay_cross.svg) | ![overlay styled](examples/images/isothio_overlay_styled.svg) |
 
-| Ensemble (CPK) | Ensemble (viridis) |
-|----------------|--------------------|
-| ![ensemble](examples/images/triphenylbenzol_ensemble.svg) | ![ensemble custom](examples/images/triphenylbenzol_ensemble_custom.svg) |
+| Ensemble (spectral) | Ensemble (CPK) | Ensemble (viridis) |
+|---------------------|----------------|--------------------|
+| ![ensemble](examples/images/triphenylbenzol_ensemble.svg) | ![ensemble cpk](examples/images/triphenylbenzol_ensemble_cpk.svg) | ![ensemble custom](examples/images/triphenylbenzol_ensemble_custom.svg) |
 
 ### Transition states & NCI
 
@@ -250,19 +208,23 @@ For the full Python API (render options, `build_config()`, `measure()`, `load()`
 
 ### Crystal / periodic structures
 
-| Unit cell | Rotation | VASP | Supercell 2×2×1 | Viewing direction |
-|-----------|----------|------|-----------------|-------------------|
-| ![cell](examples/images/caffeine_cell.svg) | ![cell rot](examples/images/caffeine_cell.gif) | ![vasp](examples/images/NV63_vasp.svg) | ![supercell](examples/images/NV63_cell_supercell_221.svg) | ![111](examples/images/NV63_111.gif) |
+| Unit cell | Unwrapped | Rotation |
+|-----------|-----------|----------|
+| ![cell](examples/images/caffeine_cell.svg) | ![unwrap](examples/images/caffeine_cell_unwrap.svg) | ![cell rot](examples/images/caffeine_cell.gif) |
+
+| VASP | Supercell 2×2×1 | Viewing direction |
+|------|-----------------|-------------------|
+| ![vasp](examples/images/NV63_vasp.svg) | ![supercell](examples/images/NV63_cell_supercell_221.svg) | ![111](examples/images/NV63_111.gif) |
 
 ### GIF animations
 
-| Rotation | TS + NCI + vdW + rotation | Trajectory | TS |
-|----------|---------------------------|------------|------------------|
-| ![rotate](examples/images/caffeine.gif) | ![ts rot](examples/images/bimp_nci_ts.gif) | ![trj](examples/images/bimp_trj.gif) | ![ts](examples/images/mn-h2.gif) |
+| Rotation | Bounce (50deg) | Trajectory (per-frame bonds) |
+|----------|----------------|------------------------------|
+| ![rotate](examples/images/caffeine.gif) | ![bounce](examples/images/caffeine_bounce_50.gif) | ![sn2 mep](examples/images/sn2_trj_bonds.gif) |
 
-| Bounce (50deg) |
-|----------------|
-| ![bounce](examples/images/caffeine_bounce_50.gif) |
+| TS + NCI + vdW + rotation | Trajectory | TS |
+|---------------------------|------------|----|
+| ![ts rot](examples/images/bimp_nci_ts.gif) | ![trj](examples/images/bimp_trj.gif) | ![ts](examples/images/mn-h2.gif) |
 
 | Overlay rotation | MO | Density | 
 |----------|---------------------------|------------|
@@ -272,20 +234,7 @@ For the full Python API (render options, `build_config()`, `measure()`, `load()`
 |-----|--------------------|
 | ![vectors](examples/images/ethanol_forces_efield.gif) | ![diffuse](examples/images/caffeine_diffuse.gif) |
 
-For usage details and CLI commands, see the [examples](https://xyzrender.readthedocs.io/en/latest/examples.html) and [CLI reference](https://xyzrender.readthedocs.io/en/latest/cli_reference.html) in the docs.
-
-## Documentation
-
-Full documentation at [**xyzrender.readthedocs.io**](https://xyzrender.readthedocs.io):
-
-- [Installation](https://xyzrender.readthedocs.io/en/latest/installation.html) — PyPI, uv, source, optional dependencies
-- [CLI Quickstart](https://xyzrender.readthedocs.io/en/latest/quickstart_cli.html) — getting started from the command line
-- [Python API Guide](https://xyzrender.readthedocs.io/en/latest/python_api.html) — render options, `build_config()`, `measure()`, return types
-- [Examples](https://xyzrender.readthedocs.io/en/latest/examples.html) — presets, overlays, surfaces, crystal, annotations, and more
-- [Configuration](https://xyzrender.readthedocs.io/en/latest/configuration.html) — presets, custom JSON, styling flags
-- [CLI Reference](https://xyzrender.readthedocs.io/en/latest/cli_reference.html) — all flags
-- [Input Formats](https://xyzrender.readthedocs.io/en/latest/formats.html) — XYZ, QM output, SDF, PDB, SMILES, CIF, cube files
-- [API Reference](https://xyzrender.readthedocs.io/en/latest/reference.html) — auto-generated from docstrings
+Each row in the gallery has its corresponding commands and Python snippets in the [docs examples](https://xyzrender.readthedocs.io/en/latest/examples.html); every flag is listed in the [CLI reference](https://xyzrender.readthedocs.io/en/latest/cli_reference.html).
 
 ## License
 
@@ -296,6 +245,9 @@ Full documentation at [**xyzrender.readthedocs.io**](https://xyzrender.readthedo
 The SVG rendering in xyzrender is built on and heavily inspired by [**xyz2svg**](https://github.com/briling/xyz2svg). The CPK colour scheme, core SVG atom/bond rendering logic, fog, and overall approach originate from that project.  
 - [Ksenia Briling (@briling)](https://github.com/briling) — [**xyz2svg**](https://github.com/briling/xyz2svg) and [**v**](https://github.com/briling/v)
 - [Iñigo Iribarren Aguirre (@iribirii)](https://github.com/iribirii) — radial gradient (pseudo-3D) rendering from [**xyz2svg**](https://github.com/briling/xyz2svg).
+
+The interlocked-spheres rendering used by `--config vdw` and the `--vdw` overlay is adapted from [**CineMol**](https://github.com/moltools/CineMol) by David Meijer.
+- D. Meijer, M.H. Medema and J.J.J. van der Hooft, *J. Cheminform.*, 2024, **16**, 58 ([DOI](https://doi.org/10.1186/s13321-024-00851-y)).
 
 Key dependencies:
 
@@ -312,6 +264,7 @@ Optional dependencies:
 
 - [**rdkit**](https://www.rdkit.org/) — SMILES 3D embedding (`pip install 'xyzrender[smi]'`)
 - [**ase**](https://wiki.fysik.dtu.dk/ase/) — CIF parsing, and ASE viewer integration (`pip install 'xyzrender[cif]'`)
+- [**shelxfile**](https://github.com/dkratzert/ShelXFile) — SHELXL `.res`/`.ins` parsing (`pip install 'xyzrender[shelxl]'`)
 - [**v**](https://github.com/briling/v) — interactive molecule orientation (`pip install xyzrender[v]`, Linux only, not included into `[all]`)
 
 Contributors:
@@ -323,6 +276,10 @@ Contributors:
 - [James O'Brien (@JamesOBrien2)](https://github.com/JamesOBrien2) — stereochemistry detection and integration, nci/ts colour control, graph styling, pmol styling, colour palette extension, ase viewer integration, igmh cubes
 - [Vinicius Port (@caprilesport)](https://github.com/caprilesport) — `v` binary path discovery
 - [Lucas Attia (@lucasattia)](https://github.com/lucasattia) — transparent background
+- [Jonathan Di Pietro (@jonathandip)](https://github.com/jonathandip) — CVD colour palettes, bug fixes
+- [Henry Teahan (@HenryTeahan)](https://github.com/HenryTeahan) — direct rdkit mol object rendering
+- [Pedro Juan Royo (@Parzival1918)](https://github.com/Parzival1918) — unwrap for molecular crystals, SHELXL support
+- [Geoff Hutchison (@ghutchis)](https://github.com/ghutchis) — CJSON Avogadro support (and plugin)
 
 ## Citation
 
@@ -344,8 +301,7 @@ xyzrender uses [xyzgraph](https://github.com/aligfellow/xyzgraph) and [graphRC](
 
 ## Development
 
-<details>
-<summary>Information on dev setup and CI</summary>
+### Dev setup and justfile
 
 Requires [uv](https://docs.astral.sh/uv/) and [just](https://github.com/casey/just).
 
@@ -370,8 +326,6 @@ just check   # lint + type-check + tests
 ### CI
 
 GitHub Actions runs lint, type-check, and tests on every push to `main` and every PR targeting `main`. Coverage is uploaded to [Codecov](https://codecov.io).
-
-</details>
 
 ## Template
 Generated from [aligfellow/python-template](https://github.com/aligfellow/python-template).

@@ -1,6 +1,6 @@
 # Input Formats
 
-xyzrender reads bond connectivity directly from file where available (mol, SDF, MOL2, PDB, SMILES, CIF). The parser is selected by file extension.
+xyzrender reads bond connectivity directly from file where available (mol, SDF, MOL2, PDB, SMILES, CIF, CJSON). The parser is selected by file extension.
 
 ## XYZ
 
@@ -81,6 +81,24 @@ xyzrender --smi "C1CCCCC1" --hy -o cyclohexane.svg
 
 An XYZ file of the optimised 3D geometry is automatically saved alongside the rendered image (e.g. `cyclohexane.xyz`).
 
+From the Python API you can also pass a prebuilt RDKit `Mol` (with embedded 3D conformers) directly to `load()` — `load(mol)` renders one conformer, `load(mol, ensemble=True)` overlays all of them. See [Python API](python_api.md).
+
+## CJSON
+
+Chemical JSON (`.cjson`) is [Avogadro](https://avogadro.cc/)'s native format. No extra dependencies are needed:
+
+```bash
+xyzrender molecule.cjson
+```
+
+Beyond atoms and bond orders, three things carry over from Avogadro:
+
+- **Per-atom colours** — colours you set in Avogadro (`atoms.colors`) are used instead of CPK. `--cmap` and `--mol-color` still override them.
+- **Camera orientation** — a camera saved by Avogadro (`properties.modelView`) is used by default, without perspective projection. `--orient` and `--no-orient` ignore it; see [Orientation](orientation.md). From Python, pass `camera=False` to `load()`.
+- **Unit cells** — a `unitCell` block enables crystal rendering automatically, with the cell box, ghost atoms, and axis arrows. See [Crystal Structures](examples/crystal.md).
+
+Multi-conformer files (`atoms.coords.3dSets`) are selected with `--mol-frame N`.
+
 ## CIF
 
 Requires `pip install 'xyzrender[cif]'` (ase):
@@ -88,6 +106,17 @@ Requires `pip install 'xyzrender[cif]'` (ase):
 ```bash
 xyzrender structure.cif
 ```
+
+## SHELXL
+
+Requires `pip install 'xyzrender[shelxl]'` (shelxfile). Reads SHELXL small-molecule refinement files (`.res`, `.ins`). The full unit cell contents are expanded from the space-group symmetry, and — like CIF — the cell box, ghost atoms, and axis arrows are enabled automatically:
+
+```bash
+xyzrender structure.res
+xyzrender structure.ins
+```
+
+See [Crystal Structures](examples/crystal.md).
 
 ## Cube files
 
