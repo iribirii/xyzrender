@@ -69,11 +69,18 @@ def test_load_bond_cmap_missing_atom(ethanol, tmp_path):
         load_bond_cmap(str(path), ethanol.graph)
 
 
-def test_load_bond_cmap_not_bonded(ethanol, tmp_path):
+def test_load_bond_cmap_adds_missing_edge(ethanol, tmp_path, caplog):
+    import logging
+
     path = tmp_path / "bonds.txt"
     path.write_text("3 4 1.0\n")
-    with pytest.raises(ValueError, match="not bonded"):
-        load_bond_cmap(str(path), ethanol.graph)
+    graph = ethanol.graph
+    assert not graph.has_edge(2, 3)
+    with caplog.at_level(logging.WARNING):
+        result = load_bond_cmap(str(path), graph)
+    assert result[(2, 3)] == 1.0
+    assert graph.has_edge(2, 3)
+    assert any("adding edge for coloring" in r.message for r in caplog.records)
 
 
 def test_load_bond_cmap_same_atom(ethanol, tmp_path):

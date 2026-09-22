@@ -51,7 +51,7 @@ Recommended palette set for `xyzrender`:
 
 ## Bond property colormap (`--bond-cmap`)
 
-Color **selected bonds** by a scalar (e.g. Mayer bond order, NBO occupancy). The file has three columns — **1-indexed atom i**, **atom j**, and **value**. Pairs are undirected (`2 3 v` equals `3 2 v`). Bonds not listed keep the normal bond styling.
+Color **selected bonds** by a scalar (e.g. Mayer bond order, NBO occupancy). The file has three columns — **1-indexed atom i**, **atom j**, and **value**. Pairs are undirected (`2 3 v` equals `3 2 v`). Bonds not listed keep the normal bond styling. Both atoms must exist in the structure; if automatic bond detection did not add a link between them, xyzrender **logs a warning and adds an edge** so the bond can be colored (same idea as `--bond i-j`).
 
 ```text
 # bond_orders.txt

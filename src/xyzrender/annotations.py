@@ -104,6 +104,19 @@ def _warn_no_bond(i: int, j: int) -> None:
     logger.warning("no bond between atoms %d and %d - placing label at midpoint", i + 1, j + 1)
 
 
+def _ensure_bond_for_cmap(i: int, j: int, graph, *, context: str) -> None:
+    """Ensure *i*-*j* exists on *graph* for bond colormap coloring (0-indexed nodes)."""
+    if graph.has_edge(i, j):
+        return
+    logger.warning(
+        "bond cmap: no existing bond between atoms %d and %d; adding edge for coloring (%s)",
+        i + 1,
+        j + 1,
+        context,
+    )
+    graph.add_edge(i, j, bond_order=1.0)
+
+
 def _parse_spec(tokens: list[str], graph) -> list[Annotation]:
     """Parse one annotation spec (one -l invocation or one file line).
 
@@ -353,10 +366,7 @@ def load_bond_cmap(file_path: str, graph) -> dict[tuple[int, int], float]:
                         f"({n} atoms, valid range 1-{n})"
                     )
 
-            if not graph.has_edge(i, j):
-                raise ValueError(
-                    f"bond cmap line {lineno}: atoms {raw_i} and {raw_j} are not bonded in this structure"
-                )
+            _ensure_bond_for_cmap(i, j, graph, context=f"bond cmap line {lineno}")
 
             key = (min(i, j), max(i, j))
             result[key] = val

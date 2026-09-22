@@ -358,6 +358,20 @@ def test_render_bond_cmap_with_colorbar(ethanol):
     assert "linearGradient" in svg or "stop-color" in svg
 
 
+def test_resolve_bond_cmap_dict_adds_missing_edge(ethanol, caplog):
+    import logging
+
+    from xyzrender.api import _resolve_bond_cmap
+
+    graph = ethanol.graph.copy()
+    assert not graph.has_edge(2, 3)
+    with caplog.at_level(logging.WARNING):
+        out = _resolve_bond_cmap({(3, 4): 0.5}, graph)
+    assert out[(2, 3)] == 0.5
+    assert graph.has_edge(2, 3)
+    assert any("adding edge for coloring" in r.message for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # render() — hydrogen flags
 # ---------------------------------------------------------------------------
