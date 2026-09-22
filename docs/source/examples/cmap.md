@@ -38,7 +38,7 @@ The colormap file has two columns — **1-indexed atom number** and value. Any e
 | Flag | Description |
 |------|-------------|
 | `--cmap FILE` | Path to colormap data file (two-column: atom index, value) |
-| `--cmap-range VMIN VMAX` | Override colormap range (useful for symmetric scales, e.g. `-0.5 0.5`) |
+| `--cmap-range VMIN VMAX` | Override vmin/vmax for atom, bond, and ESP colorbars (e.g. `-0.5 0.5`) |
 | `--cmap-symm` | Symmetric range about zero: `[-max(|v|), +max(|v|)]` |
 | `--cmap-palette NAME` | Colormap palette (default: `viridis`) |
 | `--cbar` | Add a vertical colorbar on the right showing the data range |
@@ -63,4 +63,4 @@ Color **selected bonds** by a scalar (e.g. Mayer bond order, NBO occupancy). The
 xyzrender cluster.xyz --bond-cmap bond_orders.txt --cmap-palette coolwarm --cbar
 ```
 
-Use the same `--cmap-range`, `--cmap-symm`, `--cmap-palette`, and `--cbar` flags as for atom `--cmap`. With both `--cmap` and `--bond-cmap`, the colorbar reflects the atom colormap.
+Use the same `--cmap-range`, `--cmap-symm`, `--cmap-palette`, `--cbar`, and `--cbar-unit` flags as for atom `--cmap`. With both `--cmap` and `--bond-cmap`, the colorbar reflects the atom colormap. For rotation GIFs with a colorbar, add `--raster-fit-viewbox` so the bar is not cropped (default GIF raster is square).

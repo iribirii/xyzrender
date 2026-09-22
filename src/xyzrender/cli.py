@@ -674,6 +674,12 @@ def main() -> None:
     gif_g.add_argument("-go", "--gif-output", default=None, help="GIF output path")
     gif_g.add_argument("--gif-fps", type=int, default=10, help="GIF frames per second (default: 10)")
     gif_g.add_argument("--rot-frames", type=int, default=120, help="Rotation frames (default: 120)")
+    gif_g.add_argument(
+        "--raster-fit-viewbox",
+        action="store_true",
+        default=False,
+        help="Raster GIF frames to SVG viewBox aspect (default: square canvas; avoids cropping wide colorbars)",
+    )
     gif_g.add_argument("--vib-frames", type=int, default=None, help="Vibration frames for --gif-ts (default: 20)")
     gif_g.add_argument(
         "--gif-bounce",
@@ -850,7 +856,7 @@ def main() -> None:
         type=float,
         default=None,
         metavar=("VMIN", "VMAX"),
-        help="Explicit colormap range (default: auto from file values)",
+        help="Explicit vmin/vmax for --cmap, --bond-cmap, and --esp colorbars (default: auto from data)",
     )
     annot_g.add_argument(
         "--cmap-palette",
@@ -869,7 +875,7 @@ def main() -> None:
         "--cbar-unit",
         default=None,
         metavar="TEXT",
-        help="Unit label printed under the colorbar (e.g. kcal/mol)",
+        help="Unit label printed above the colorbar (e.g. kcal/mol)",
     )
     annot_g.add_argument(
         "--cmap-symm",
@@ -1321,6 +1327,8 @@ def main() -> None:
 
     if args.cbar_unit:
         cfg.cbar_unit = args.cbar_unit
+    if args.raster_fit_viewbox:
+        cfg.raster_fit_viewbox = True
 
     # --- align-atoms: pass through as a selector string ---
     # The full selector grammar applies — numeric ranges ("1,2-5"),

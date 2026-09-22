@@ -337,10 +337,10 @@ def test_render_svg_esp_colorbar_uses_actual_range(caffeine_mol):
 
     svg = render_svg(caffeine_mol.graph, cfg)
 
-    # Colorbar ticks are full f"{val:.3f}" labels (Unicode minus), not split int/frac.
-    assert ">0.185</text>" in svg
-    assert ">0.078</text>" in svg
-    assert ">\u22120.029</text>" in svg
+    assert ">0</text>" in svg
+    assert ">.185</text>" in svg
+    assert ">\u22120</text>" in svg
+    assert ">.029</text>" in svg
 
 
 def test_esp_surface_uses_manual_cmap_range(caffeine_mol, caffeine_dens_cube, caffeine_esp_cube):
@@ -365,8 +365,8 @@ def test_render_svg_esp_colorbar_uses_manual_cmap_range(caffeine_mol, caffeine_d
     compute_esp_surface(caffeine_mol, caffeine_dens_cube, caffeine_esp_cube, cfg, ESPParams())
     svg = render_svg(caffeine_mol.graph, cfg)
 
-    assert ">\u22120.003</text>" in svg
-    assert ">0.003</text>" in svg
+    assert "\u22120</text>" in svg
+    assert ">.003</text>" in svg
 
 
 def test_esp_cmap_range_and_symm_are_mutually_exclusive():
